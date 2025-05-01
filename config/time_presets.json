@@ -1,0 +1,52 @@
+{
+  "C:/Users/HOUSE/Videos/Traffic IP Camera video.mp4": {
+    "green": 25,
+    "yellow": 3,
+    "red": 30
+  },
+  "data/raw/videos\\Traffic IP Camera video.mp4": {
+    "green": 25,
+    "yellow": 3,
+    "red": 30
+  },
+  "C:/Users/Christopeer/Downloads/InfractiVision-main/data/raw/videos/Traffic IP Camera video.mp4": {
+    "green": 14,
+    "yellow": 3,
+    "red": 25
+  },
+  "C:/Users/Christopeer/Downloads/InfractiVision-main/data/raw/videos/LPR Camera China in Day Time DEMO from PTCCTV.mp4": {
+    "green": 23,
+    "yellow": 3,
+    "red": 42
+  },
+  "videos\\Traffic IP Camera video.mp4": {
+    "green": 14,
+    "yellow": 2,
+    "red": 15
+  },
+  "videos\\LPR Camera China in Day Time DEMO from PTCCTV.mp4": {
+    "green": 15,
+    "yellow": 2,
+    "red": 16
+  },
+  "C:\\Users\\Christopeer\\Downloads\\InfractiVision-main\\videos\\Traffic IP Camera video.mp4": {
+    "green": 12,
+    "yellow": 1,
+    "red": 12
+  },
+  "C:\\Users\\Christopeer\\Downloads\\InfractiVision-main\\videos\\LPR Camera China in Day Time DEMO from PTCCTV.mp4": {
+    "green": 12,
+    "yellow": 1,
+    "red": 12
+  },
+  "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\Traffic IP Camera video.mp4": {
+    "green": 12,
+    "yellow": 1,
+    "red": 12
+  },
+  "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\LPR Camera China in Day Time DEMO from PTCCTV.mp4": {
+    "green": 12,
+    "yellow": 2,
+    "red": 12
+  }
+}
