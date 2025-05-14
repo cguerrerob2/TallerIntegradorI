@@ -15,6 +15,8 @@ from tkinter import messagebox, simpledialog
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 
+from src.core.detection.wrongway_detector import WrongWayDetector
+from src.core.detection.speed_detector import SpeedDetector
 from src.core.detection.plate_detector import PlateDetector
 from src.core.detection.vehicle_detector import VehicleDetector
 from src.core.processing.plate_processing import process_plate
@@ -31,18 +33,25 @@ class VideoPlayerOpenCV:
         self.timestamp_label   = timestamp_label
         self.semaforo          = semaforo
 
-        self.yolo = YOLO('models/yolov8n.pt')      # peso pequeño, pre-entrenado en COCO
-        self.CAR_CLASS_ID = 2               # en COCO, 'car' = 2
-        self.CONF_THRESH   = 0.4
-
         self.seen_plates = set()
+        self.wrong_way_detector = WrongWayDetector(allowed_direction='right')
 
         # Configuración CUDA para mejor rendimiento
         if torch.cuda.is_available():
             self.device = torch.device('cuda')
-            torch.backends.cudnn.benchmark = True  # Optimiza operaciones para tamaños de imagen fijos
-            torch.backends.cudnn.deterministic = False  # Permite optimizaciones no deterministas
-            print("Usando GPU para aceleración")
+            
+            # Configuraciones avanzadas para mejor rendimiento CUDA
+            torch.backends.cudnn.benchmark = True     # Optimización para tamaños fijos de input
+            torch.backends.cudnn.deterministic = False # Permite optimizaciones no deterministas
+            torch.backends.cudnn.fastest = True       # Usa el algoritmo más rápido
+            
+            # Seleccionar GPU específica si tienes múltiples (opcional)
+            # torch.cuda.set_device(0)  # Usa la primera GPU
+            
+            # Mostrar información de la GPU
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            print(f"Usando GPU: {gpu_name} ({gpu_mem:.2f} GB)")
         else:
             self.device = torch.device('cpu')
             print("GPU no disponible, usando CPU")
@@ -523,64 +532,55 @@ class VideoPlayerOpenCV:
 
     def detect_and_draw_cars(self, frame):
         """
-        Detecta vehículos en el frame y dibuja recuadros verdes.
-        Versión altamente optimizada para máximo rendimiento.
+        Detecta vehículos en el frame, estima su velocidad y dibuja recuadros.
+        Versión optimizada que evita detecciones duplicadas.
         """
-        # Reducir resolución para procesamiento
-        proc_scale = 0.5  # Procesar a la mitad de resolución
-        h, w = frame.shape[:2]
-        proc_w, proc_h = int(w * proc_scale), int(h * proc_scale)
-        
-        # Redimensionar frame para procesamiento
-        small_frame = cv2.resize(frame, (proc_w, proc_h), interpolation=cv2.INTER_LINEAR)
-        
-        # Detección en el frame pequeño
+        frame_with_cars = frame.copy()
         car_detections = []
         
         try:
-            # 1. Usar detector de vehículos con inicialización diferida
+            # 1. Inicialización del detector de vehículos si no existe
             if not hasattr(self, 'vehicle_detector'):
                 self.vehicle_detector = VehicleDetector(model_path="models/yolov8n.pt")
             
-            # 2. Detectar vehículos en frame reducido
-            detections = self.vehicle_detector.detect(small_frame, draw=False)
+            # 2. Detectar vehículos (solo una detección para todo)
+            detections = self.vehicle_detector.detect(frame, draw=False)
             
-            # 3. Copiar frame solo si hay detecciones (ahorra memoria)
-            frame_with_cars = None
+            # 3. Usar estas detecciones para estimación de velocidad
+            if not hasattr(self, 'speed_detector'):
+                self.speed_detector = SpeedDetector(distance_meters=10, fps=30)
             
-            # Escalar detecciones al tamaño original
-            scale_factor = 1.0 / proc_scale
-            for (x1, y1, x2, y2, cls_id) in detections:
-                if cls_id in [2, 5, 7]:  # car, bus, truck
-                    # Escalar coordenadas a tamaño original
-                    x1s, y1s = int(x1 * scale_factor), int(y1 * scale_factor)
-                    x2s, y2s = int(x2 * scale_factor), int(y2 * scale_factor)
-                    
-                    # Crear copia del frame solo cuando sea necesario
-                    if frame_with_cars is None:
-                        frame_with_cars = frame.copy()
-                    
-                    # Dibujar rectángulo
-                    cv2.rectangle(frame_with_cars, (x1s, y1s), (x2s, y2s), (0, 255, 0), 2)
-                    
-                    # Etiquetas según la clase
-                    label = "CAR" if cls_id == 2 else "BUS" if cls_id == 5 else "TRUCK"
-                    
-                    # Dibujar texto
-                    cv2.putText(frame_with_cars, label,
-                                (x1s, y1s - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                                (0, 255, 0), 2)
-                    
-                    car_detections.append((x1s, y1s, x2s, y2s, cls_id, label))
+            # Si es el primer frame, calibrar
+            if not hasattr(self, 'pixel_per_meter') or self.pixel_per_meter is None:
+                self.pixel_per_meter = self.speed_detector.calibrate(detections)
             
-            # Si no hubo detecciones, devolver frame original
-            if frame_with_cars is None:
-                frame_with_cars = frame
-                
+            # Actualizar velocidades (reutiliza las mismas detecciones)
+            speed_detections = self.speed_detector.update(
+                detections, frame.shape, self.pixel_per_meter
+            )
+            
+            # 4. Dibujar resultados
+            if speed_detections:
+                frame_with_cars = self.speed_detector.draw_results(frame, speed_detections)
+            
+            # 5. Convertir al formato original de car_detections para el resto del código
+            for (x1, y1, x2, y2, cls_id, obj_id, speed_kmh) in speed_detections:
+                # La clase 2 es 'car', 5 es 'bus', 7 es 'truck' en COCO
+                if cls_id in [2, 5, 7]:
+                    label_text = ""
+                    if cls_id == 2:
+                        label_text = f"CAR: {speed_kmh:.1f} km/h"
+                    elif cls_id == 5:
+                        label_text = f"BUS: {speed_kmh:.1f} km/h"
+                    elif cls_id == 7:
+                        label_text = f"TRUCK: {speed_kmh:.1f} km/h"
+                    
+                    car_detections.append((x1, y1, x2, y2, cls_id, label_text))
+            
         except Exception as e:
-            print(f"Error al detectar vehículos: {str(e)}")
-            frame_with_cars = frame
+            print(f"Error al detectar vehículos y velocidad: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         return frame_with_cars, car_detections
 
