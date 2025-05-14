@@ -4,6 +4,9 @@ import tkinter as tk
 from src.gui.welcome_window import WelcomeFrame
 from src.gui.red_light_violation_window import create_violation_window
 from src.gui.infractions_management_window import create_infractions_window
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
 
 class AppManager:
     """Centraliza la navegación entre pantallas GUI en una única ventana,

@@ -45,8 +45,13 @@
     "red": 12
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\LPR Camera China in Day Time DEMO from PTCCTV.mp4": {
+    "green": 8,
+    "yellow": 1,
+    "red": 8
+  },
+  "Traffic IP  Camera Video": {
     "green": 12,
-    "yellow": 2,
-    "red": 12
+    "yellow": 1,
+    "red": 4
   }
 }

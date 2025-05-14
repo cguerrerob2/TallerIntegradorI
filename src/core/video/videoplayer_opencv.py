@@ -15,6 +15,8 @@ from tkinter import messagebox, simpledialog
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 
+from src.core.detection.plate_detector import PlateDetector
+from src.core.detection.vehicle_detector import VehicleDetector
 from src.core.processing.plate_processing import process_plate
 
 # Archivos de configuración
@@ -28,6 +30,22 @@ class VideoPlayerOpenCV:
         self.timestamp_updater = timestamp_updater
         self.timestamp_label   = timestamp_label
         self.semaforo          = semaforo
+
+        self.yolo = YOLO('models/yolov8n.pt')      # peso pequeño, pre-entrenado en COCO
+        self.CAR_CLASS_ID = 2               # en COCO, 'car' = 2
+        self.CONF_THRESH   = 0.4
+
+        self.seen_plates = set()
+
+        # Configuración CUDA para mejor rendimiento
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            torch.backends.cudnn.benchmark = True  # Optimiza operaciones para tamaños de imagen fijos
+            torch.backends.cudnn.deterministic = False  # Permite optimizaciones no deterministas
+            print("Usando GPU para aceleración")
+        else:
+            self.device = torch.device('cpu')
+            print("GPU no disponible, usando CPU")
 
         # Directorio de vídeos
         self.video_dir = os.path.join(os.getcwd(), "videos")
@@ -503,70 +521,249 @@ class VideoPlayerOpenCV:
                 self._safe_add_plate_to_panel(plate_sr, ocr_text)
             self.plate_queue.task_done()
 
+    def detect_and_draw_cars(self, frame):
+        """
+        Detecta vehículos en el frame y dibuja recuadros verdes.
+        Versión altamente optimizada para máximo rendimiento.
+        """
+        # Reducir resolución para procesamiento
+        proc_scale = 0.5  # Procesar a la mitad de resolución
+        h, w = frame.shape[:2]
+        proc_w, proc_h = int(w * proc_scale), int(h * proc_scale)
+        
+        # Redimensionar frame para procesamiento
+        small_frame = cv2.resize(frame, (proc_w, proc_h), interpolation=cv2.INTER_LINEAR)
+        
+        # Detección en el frame pequeño
+        car_detections = []
+        
+        try:
+            # 1. Usar detector de vehículos con inicialización diferida
+            if not hasattr(self, 'vehicle_detector'):
+                self.vehicle_detector = VehicleDetector(model_path="models/yolov8n.pt")
+            
+            # 2. Detectar vehículos en frame reducido
+            detections = self.vehicle_detector.detect(small_frame, draw=False)
+            
+            # 3. Copiar frame solo si hay detecciones (ahorra memoria)
+            frame_with_cars = None
+            
+            # Escalar detecciones al tamaño original
+            scale_factor = 1.0 / proc_scale
+            for (x1, y1, x2, y2, cls_id) in detections:
+                if cls_id in [2, 5, 7]:  # car, bus, truck
+                    # Escalar coordenadas a tamaño original
+                    x1s, y1s = int(x1 * scale_factor), int(y1 * scale_factor)
+                    x2s, y2s = int(x2 * scale_factor), int(y2 * scale_factor)
+                    
+                    # Crear copia del frame solo cuando sea necesario
+                    if frame_with_cars is None:
+                        frame_with_cars = frame.copy()
+                    
+                    # Dibujar rectángulo
+                    cv2.rectangle(frame_with_cars, (x1s, y1s), (x2s, y2s), (0, 255, 0), 2)
+                    
+                    # Etiquetas según la clase
+                    label = "CAR" if cls_id == 2 else "BUS" if cls_id == 5 else "TRUCK"
+                    
+                    # Dibujar texto
+                    cv2.putText(frame_with_cars, label,
+                                (x1s, y1s - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                                (0, 255, 0), 2)
+                    
+                    car_detections.append((x1s, y1s, x2s, y2s, cls_id, label))
+            
+            # Si no hubo detecciones, devolver frame original
+            if frame_with_cars is None:
+                frame_with_cars = frame
+                
+        except Exception as e:
+            print(f"Error al detectar vehículos: {str(e)}")
+            frame_with_cars = frame
+        
+        return frame_with_cars, car_detections
+
     def update_frames(self):
+        """
+        Actualiza los frames del video usando la función detect_and_draw_cars.
+        """
         if not self.running or not self.cap:
             return
+        
         ret, frame = self.cap.read()
         if not ret:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self._after_id = self.parent.after(int(1000/30), self.update_frames)
             return
+
+        # Usar nuestra nueva función para detectar y dibujar vehículos
+        frame_with_cars, car_detections = self.detect_and_draw_cars(frame)
+        
+        # Si hay un polígono definido, dibujarlo
         if self.polygon_points:
-            mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-            pts = np.array(self.polygon_points, np.int32).reshape(-1,1,2)
-            cv2.fillPoly(mask, [pts], 255)
-            roi = cv2.bitwise_and(frame, frame, mask=mask)
-        else:
-            roi = frame.copy()
-        if self.semaforo.get_current_state() == "red":
-            if not self.plate_queue.full():
-                self.plate_queue.put((frame.copy(), roi))
-        bgr_img = self.resize_and_letterbox(frame)
-        if self.polygon_points:
-            self.draw_polygon_on_np(bgr_img)
+            pts = np.array(self.polygon_points, np.int32).reshape(-1, 1, 2)
+            cv2.polylines(frame_with_cars, [pts], True, (0, 0, 255), 2)
+
+        # Procesar placas si está en rojo (tu código existente)
+        if self.semaforo.get_current_state() == "red" and not self.plate_queue.full():
+            if self.polygon_points:
+                mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+                cv2.fillPoly(mask, [pts], 255)
+                roi = cv2.bitwise_and(frame, frame, mask=mask)
+            else:
+                roi = frame.copy()
+            self.plate_queue.put((frame.copy(), roi))
+        
+        # Mostrar el frame anotado
+        bgr_img = self.resize_and_letterbox(frame_with_cars)
+        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        imgtk = ImageTk.PhotoImage(Image.fromarray(rgb_img))
+        self.video_label.config(image=imgtk)
+        self.video_label.image = imgtk
+        
+        # Métricas y siguiente frame
         dt = time.time() - self.last_time
         self.last_time = time.time()
         if dt > 0:
             alpha = 0.9
             inst_fps = 1.0 / dt
             self.fps_calc = alpha * self.fps_calc + (1 - alpha) * inst_fps
-        proc = psutil.Process(os.getpid())
-        mem_mb = proc.memory_info().rss / (1024*1024)
+
+        process = psutil.Process(os.getpid())
+        mem_mb = process.memory_info().rss / (1024 * 1024)
         dev = "GPU" if self.using_gpu else "CPU"
-        info = f"{dev} | FPS: {self.fps_calc:.1f} | RAM: {mem_mb:.1f}MB"
-        self.info_label.config(text=info)
-        self.info_label.lift()
-        rgb = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
-        imgtk = ImageTk.PhotoImage(Image.fromarray(rgb))
-        self.video_label.config(image=imgtk)
-        self.video_label.image = imgtk
+        info_text = f"{dev} | FPS: {self.fps_calc:.1f} | RAM: {mem_mb:.1f}MB"
+        self.info_label.config(text=info_text)
+        
+        # Asegurarse que las etiquetas estén visibles
         self.timestamp_label.lift()
         self.avenue_label.lift()
+        self.info_label.lift()
+        
         self._after_id = self.parent.after(10, self.update_frames)
 
-    def resize_and_letterbox(self, frame_bgr):
+    def _safe_add_plate_to_panel(self, plate_image, text):
+        """
+        Añade de forma segura una placa detectada al panel lateral,
+        mostrando cada placa una debajo de otra de forma organizada.
+        """
+        # Evitar duplicados
+        if text in self.seen_plates:
+            return
+        self.seen_plates.add(text)
+        
+        def _add():
+            try:
+                # 1. Redimensionar para que todas tengan el mismo tamaño
+                h, w = plate_image.shape[:2]
+                # Mantener relación de aspecto pero normalizar altura
+                target_height = 60
+                target_width = int(w * (target_height / h))
+                
+                # Limitar el ancho máximo al espacio disponible del panel
+                max_width = 180
+                if target_width > max_width:
+                    target_width = max_width
+                    target_height = int(h * (max_width / w))
+                
+                # Redimensionar con alta calidad
+                thumb = cv2.resize(plate_image, (target_width, target_height), 
+                                interpolation=cv2.INTER_AREA)
+                
+                # 2. Convertir a formato para Tkinter
+                rgb = cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB)
+                imgtk = ImageTk.PhotoImage(Image.fromarray(rgb))
+                
+                # 3. Crear contenedor para esta placa con fondo más oscuro para destacar
+                plate_container = tk.Frame(self.plates_inner_frame, bg="#333333", 
+                                        padx=5, pady=5, bd=1, relief="raised")
+                
+                # 4. Etiqueta para la imagen centrada
+                lbl_img = tk.Label(plate_container, image=imgtk, bg="#333333")
+                lbl_img.image = imgtk  # Mantener referencia
+                lbl_img.pack(pady=(5, 3))
+                
+                # 5. Etiqueta para el texto en negritas para mejor legibilidad
+                lbl_text = tk.Label(plate_container, text=text, bg="#333333", 
+                                fg="white", font=("Arial", 12, "bold"))
+                lbl_text.pack(pady=(0, 5))
+                
+                # 6. Empaquetar este contenedor en el panel principal con espaciado
+                plate_container.pack(fill="x", pady=10, padx=10)
+                
+                # 7. Añadir a la lista para poder limpiarlos después
+                self.detected_plates_widgets.append((plate_container, lbl_img, lbl_text))
+                
+                # 8. Ajustar scroll a la nueva altura
+                self.plates_canvas.update_idletasks()
+                self.plates_canvas.configure(scrollregion=self.plates_canvas.bbox("all"))
+                
+                # 9. Hacer scroll al final para mostrar el elemento recién añadido
+                self.plates_canvas.yview_moveto(1.0)
+                
+            except Exception as e:
+                print(f"Error al añadir placa al panel: {e}")
+        
+        # Ejecutar en el hilo principal de UI
+        self.parent.after(0, _add)
+
+    
+
+
+    def resize_and_letterbox_cached(self, frame_bgr):
+        """Versión optimizada con cache para resize_and_letterbox"""
         wlbl = self.video_label.winfo_width()
         hlbl = self.video_label.winfo_height()
-        if wlbl < 2 or hlbl < 2:
-            return frame_bgr
-        h_ori, w_ori = frame_bgr.shape[:2]
-        scale = min(wlbl / w_ori, hlbl / h_ori, 1.0)
-        new_w = int(w_ori * scale)
-        new_h = int(h_ori * scale)
-        resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        canvas = np.zeros((hlbl, wlbl, 3), dtype=np.uint8)
-        off_x = (wlbl - new_w) // 2
-        off_y = (hlbl - new_h) // 2
-        canvas[off_y:off_y + new_h, off_x:off_x + new_w] = resized
-        return canvas
+        
+        # Si ya tenemos las dimensiones en cache, usar el cálculo previo
+        if hasattr(self, 'letterbox_cache') and self.letterbox_cache['dims'] == (wlbl, hlbl, *frame_bgr.shape[:2]):
+            scale = self.letterbox_cache['scale']
+            new_w = self.letterbox_cache['new_w']
+            new_h = self.letterbox_cache['new_h']
+            off_x = self.letterbox_cache['off_x']
+            off_y = self.letterbox_cache['off_y']
+        else:
+            # Calcular nuevos parámetros
+            if wlbl < 2 or hlbl < 2:
+                return frame_bgr
+            
+            h_ori, w_ori = frame_bgr.shape[:2]
+            scale = min(wlbl / w_ori, hlbl / h_ori, 1.0)
+            new_w = int(w_ori * scale)
+            new_h = int(h_ori * scale)
+            off_x = (wlbl - new_w) // 2
+            off_y = (hlbl - new_h) // 2
+            
+            # Guardar en cache
+            self.letterbox_cache = {
+                'dims': (wlbl, hlbl, *frame_bgr.shape[:2]),
+                'scale': scale,
+                'new_w': new_w,
+                'new_h': new_h,
+                'off_x': off_x,
+                'off_y': off_y
+            }
+        
+        # Redimensionar frame con interpolación rápida
+        resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        
+        # Crear canvas solo si es necesario
+        if not hasattr(self, 'canvas_buffer') or self.canvas_buffer.shape[:2] != (hlbl, wlbl):
+            self.canvas_buffer = np.zeros((hlbl, wlbl, 3), dtype=np.uint8)
+        else:
+            self.canvas_buffer.fill(0)  # Limpiar buffer
+        
+        # Colocar imagen redimensionada en el canvas
+        self.canvas_buffer[off_y:off_y + new_h, off_x:off_x + new_w] = resized
+        
+        return self.canvas_buffer
 
     def clear_detected_plates(self):
-        """
-        Elimina todos los widgets de placas detectadas en el panel lateral.
-        """
-        for item in self.detected_plates_widgets:
-            item[0].destroy()
+        for widget in self.detected_plates_widgets:
+            widget.destroy()
         self.detected_plates_widgets.clear()
+        self.seen_plates.clear()   # reinicia el set
 
     def gestionar_camaras(self):
         """
@@ -721,55 +918,6 @@ class VideoPlayerOpenCV:
                 json.dump(polygons, fw, indent=2)
         except:
             pass
-
-    def update_frames(self):
-        if not self.running or not self.cap:
-            return
-        ret, frame = self.cap.read()
-        if not ret:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            self._after_id = self.parent.after(int(1000/30), self.update_frames)
-            return
-
-        if self.polygon_points:
-            mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-            pts = np.array(self.polygon_points, np.int32).reshape(-1, 1, 2)
-            cv2.fillPoly(mask, [pts], 255)
-            roi = cv2.bitwise_and(frame, frame, mask=mask)
-        else:
-            roi = frame.copy()
-
-        if self.semaforo.get_current_state() == "red":
-            if not self.plate_queue.full():
-                self.plate_queue.put((frame.copy(), roi))
-
-        bgr_img = self.resize_and_letterbox(frame)
-        if self.polygon_points:
-            self.draw_polygon_on_np(bgr_img)
-
-        dt = time.time() - self.last_time
-        self.last_time = time.time()
-        if dt > 0:
-            alpha = 0.9
-            inst_fps = 1.0 / dt
-            self.fps_calc = alpha * self.fps_calc + (1 - alpha) * inst_fps
-
-        process = psutil.Process(os.getpid())
-        mem_mb = process.memory_info().rss / (1024 * 1024)
-        dev = "GPU" if self.using_gpu else "CPU"
-        info_text = f"{dev} | FPS: {self.fps_calc:.1f} | RAM: {mem_mb:.1f}MB"
-        self.info_label.config(text=info_text)
-        self.info_label.lift()
-
-        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
-        imgtk = ImageTk.PhotoImage(Image.fromarray(rgb_img))
-        self.video_label.config(image=imgtk)
-        self.video_label.image = imgtk
-
-        self.timestamp_label.lift()
-        self.avenue_label.lift()
-
-        self.parent.after(10, self.update_frames)
 
     def resize_and_letterbox(self, frame_bgr):
         wlbl = self.video_label.winfo_width()

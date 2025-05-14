@@ -7,7 +7,7 @@ _detector = None
 def get_plate_detector():
     global _detector
     if _detector is None:
-        _detector = PlateDetector("models/plate_detector.pt")
+        _detector = PlateDetector("models/yolov8n.pt")
     return _detector
 
 def process_plate(vehicle_bgr):
