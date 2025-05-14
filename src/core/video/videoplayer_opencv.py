@@ -532,51 +532,153 @@ class VideoPlayerOpenCV:
 
     def detect_and_draw_cars(self, frame):
         """
-        Detecta vehículos en el frame, estima su velocidad y dibuja recuadros.
-        Versión optimizada que evita detecciones duplicadas.
+        Detecta vehículos en el frame, estima su velocidad, identifica sentido contrario
+        y muestra todo integrado en un único recuadro informativo.
         """
         frame_with_cars = frame.copy()
         car_detections = []
         
         try:
-            # 1. Inicialización del detector de vehículos si no existe
+            # 1. Inicialización del detector de vehículos
             if not hasattr(self, 'vehicle_detector'):
                 self.vehicle_detector = VehicleDetector(model_path="models/yolov8n.pt")
             
             # 2. Detectar vehículos (solo una detección para todo)
             detections = self.vehicle_detector.detect(frame, draw=False)
             
-            # 3. Usar estas detecciones para estimación de velocidad
+            # 3. Estimación de velocidad
             if not hasattr(self, 'speed_detector'):
                 self.speed_detector = SpeedDetector(distance_meters=10, fps=30)
             
-            # Si es el primer frame, calibrar
             if not hasattr(self, 'pixel_per_meter') or self.pixel_per_meter is None:
                 self.pixel_per_meter = self.speed_detector.calibrate(detections)
             
-            # Actualizar velocidades (reutiliza las mismas detecciones)
             speed_detections = self.speed_detector.update(
                 detections, frame.shape, self.pixel_per_meter
             )
             
-            # 4. Dibujar resultados
-            if speed_detections:
-                frame_with_cars = self.speed_detector.draw_results(frame, speed_detections)
+            # 4. Detector de sentido contrario
+            if not hasattr(self, 'wrong_way_detector'):
+                self.wrong_way_detector = WrongWayDetector(
+                    allowed_direction='right',
+                    detection_threshold=10
+                )
+                # Configurar línea divisoria en el centro de la imagen
+                h, w = frame.shape[:2]
+                self.wrong_way_detector.set_lane_divider(w // 2)
+                
+            wrong_way_detections = self.wrong_way_detector.update(detections, frame.shape)
             
-            # 5. Convertir al formato original de car_detections para el resto del código
-            for (x1, y1, x2, y2, cls_id, obj_id, speed_kmh) in speed_detections:
-                # La clase 2 es 'car', 5 es 'bus', 7 es 'truck' en COCO
-                if cls_id in [2, 5, 7]:
-                    label_text = ""
-                    if cls_id == 2:
-                        label_text = f"CAR: {speed_kmh:.1f} km/h"
-                    elif cls_id == 5:
-                        label_text = f"BUS: {speed_kmh:.1f} km/h"
-                    elif cls_id == 7:
-                        label_text = f"TRUCK: {speed_kmh:.1f} km/h"
+            # 5. Dibujar la línea divisoria y las flechas de dirección
+            h, w = frame.shape[:2]
+            lane_divider = w // 2
+            # cv2.line(frame_with_cars, (lane_divider, 0), (lane_divider, h), 
+            #         (255, 200, 0), 2, cv2.LINE_AA)
                     
-                    car_detections.append((x1, y1, x2, y2, cls_id, label_text))
+            # Flechas de dirección permitida (pequeñas, solo en las esquinas)
+            arrow_length = 30
+            # Izquierda-abajo, derecha-arriba
+            cv2.arrowedLine(frame_with_cars, 
+                        (20, h-60), 
+                        (20, h-20), 
+                        (0, 255, 255), 2)
+            cv2.arrowedLine(frame_with_cars, 
+                        (w-20, 60), 
+                        (w-20, 20), 
+                        (0, 255, 255), 2)
             
+            # 6. Integrar resultados: combinar velocidad y detección de sentido contrario
+            vehicles_info = {}
+            
+            # Mapear por ID de objeto las detecciones de velocidad
+            for detect in speed_detections:
+                obj_id = detect[5]  # ID del objeto
+                vehicles_info[obj_id] = {
+                    'bbox': detect[:4],    # x1, y1, x2, y2
+                    'cls_id': detect[4],   # clase
+                    'speed': detect[6],    # velocidad
+                    'wrong_way': False     # por defecto no está en sentido contrario
+                }
+                
+            # Actualizar info con detecciones de sentido contrario
+            for detect in wrong_way_detections:
+                obj_id = detect[5]  # ID del objeto
+                is_wrong_way = detect[6]  # Es sentido contrario
+                
+                if obj_id in vehicles_info:
+                    vehicles_info[obj_id]['wrong_way'] = is_wrong_way
+                else:
+                    # Si por alguna razón no está en el diccionario
+                    vehicles_info[obj_id] = {
+                        'bbox': detect[:4],     # x1, y1, x2, y2
+                        'cls_id': detect[4],    # clase
+                        'speed': 0.0,           # velocidad desconocida
+                        'wrong_way': is_wrong_way
+                    }
+                    
+            # 7. Dibujar los resultados integrados
+            for obj_id, info in vehicles_info.items():
+                x1, y1, x2, y2 = info['bbox']
+                cls_id = info['cls_id']
+                speed = info['speed']
+                wrong_way = info['wrong_way']
+                
+                # Color según si está en sentido contrario o no
+                if wrong_way:
+                    color = (0, 0, 255)  # Rojo para sentido contrario
+                else:
+                    # Color según velocidad
+                    if speed < 30:
+                        color = (0, 255, 0)  # Verde para velocidad baja
+                    elif speed < 60:
+                        color = (0, 255, 255)  # Amarillo para velocidad media
+                    else:
+                        color = (255, 165, 0)  # Naranja para velocidad alta
+                
+                # Dibujar recuadro
+                cv2.rectangle(frame_with_cars, (x1, y1), (x2, y2), color, 2)
+                
+                # Texto de clase y velocidad
+                if cls_id == 2:
+                    class_text = "CAR"
+                elif cls_id == 3:
+                    class_text = "MOTORCYCLE"
+                elif cls_id == 5:
+                    class_text = "BUS"
+                elif cls_id == 7:
+                    class_text = "TRUCK"
+                else:
+                    class_text = f"CLASS {cls_id}"
+                    
+                # Crear etiqueta con formato solicitado: CAR: VELOCITY + WRONG WAY
+                label = f"{class_text}: {speed:.1f} km/h"
+                if wrong_way:
+                    label += " [WRONG WAY]"
+                    
+                # Dibujar texto con fondo
+                text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(frame_with_cars, 
+                            (x1, y1 - text_size[1] - 10), 
+                            (x1 + text_size[0] + 10, y1),
+                            color, -1)
+                cv2.putText(frame_with_cars, label, 
+                        (x1 + 5, y1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                
+                # Añadir a formato de car_detections para el resto del código
+                car_detections.append((x1, y1, x2, y2, cls_id, label))
+                
+            # 8. Alertas generales de sentido contrario
+            wrong_way_count = sum(1 for info in vehicles_info.values() if info['wrong_way'])
+            if wrong_way_count > 0:
+                cv2.rectangle(frame_with_cars, 
+                            (10, 10), 
+                            (420, 70),
+                            (0, 0, 255), -1)
+                cv2.putText(frame_with_cars, f"ALERTA: {wrong_way_count} VEHICULOS EN SENTIDO CONTRARIO", 
+                        (20, 45),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                
         except Exception as e:
             print(f"Error al detectar vehículos y velocidad: {str(e)}")
             import traceback
