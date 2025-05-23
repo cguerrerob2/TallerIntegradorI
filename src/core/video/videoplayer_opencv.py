@@ -15,6 +15,7 @@ from tkinter import messagebox, simpledialog
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 
+from src.core.detection.accident_detector import AccidentDetector
 from src.core.detection.wrongway_detector import WrongWayDetector
 from src.core.detection.speed_detector import SpeedDetector
 from src.core.detection.plate_detector import PlateDetector
@@ -35,6 +36,13 @@ class VideoPlayerOpenCV:
 
         self.seen_plates = set()
         self.wrong_way_detector = WrongWayDetector(allowed_direction='right')
+
+        # Inicializar el detector de accidentes
+        self.accident_detector = AccidentDetector(
+            time_window=1.5,
+            cooldown=5.0,
+            save_dir="data/output"
+        )
 
         # Configuración CUDA para mejor rendimiento
         if torch.cuda.is_available():
@@ -566,6 +574,16 @@ class VideoPlayerOpenCV:
                 # Configurar línea divisoria en el centro de la imagen
                 h, w = frame.shape[:2]
                 self.wrong_way_detector.set_lane_divider(w // 2)
+
+            # 5. Detector de accidentes
+            accidents = self.accident_detector.update(
+                detections, 
+                speed_detections,
+                frame.shape
+            )
+
+            # Añadir visualización de accidentes
+            frame_with_cars = self.accident_detector.draw_results(frame_with_cars, accidents)
                 
             wrong_way_detections = self.wrong_way_detector.update(detections, frame.shape)
             
