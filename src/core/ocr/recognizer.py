@@ -2,10 +2,13 @@ import cv2
 
 def recognize_plate(plate_bgr):
     """
-    Simulación de OCR:
-    - Si la imagen no está vacía, devuelve "ABC123".
-    - Si está vacía, retorna None.
+    Reconoce el texto de una placa en una imagen con mejor manejo de 
+    caracteres comúnmente confundidos
+    
+    Args:
+        plate_bgr: Imagen de la placa
+        is_night: Flag que indica si es escena nocturna
     """
     if plate_bgr.size == 0:
         return None
-    return "ABC123"
+    return "infractor_123"

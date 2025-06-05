@@ -1,5 +1,6 @@
 # src/video/videoplayer_opencv.py
 
+from tkinter import ttk
 import cv2
 import threading
 import time
@@ -277,9 +278,39 @@ class VideoPlayerOpenCV:
         self.cycle_durations = times
         self.target_time     = time.time() + times[self.semaforo.get_current_state()]
 
+    def get_direction_config_for_video(self, video_path):
+        """Obtiene la configuración de direcciones para un video específico."""
+        direction_config_file = "config/direction_config.json"
+        if not os.path.exists(direction_config_file):
+            return None
+        try:
+            with open(direction_config_file, "r", encoding="utf-8") as f:
+                return json.load(f).get(video_path)
+        except:
+            return None
+
+    def set_direction_config_for_video(self, video_path, direction_config):
+        """Guarda la configuración de direcciones para un video específico."""
+        direction_config_file = "config/direction_config.json"
+        data = {}
+        if os.path.exists(direction_config_file):
+            try:
+                with open(direction_config_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except:
+                pass
+        
+        data[video_path] = direction_config
+        
+        with open(direction_config_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    # Modificación al método first_time_setup en VideoPlayerOpenCV
+    # Modificación al método first_time_setup en VideoPlayerOpenCV
     def first_time_setup(self, video_path):
-        if ( self.get_avenue_for_video(video_path) is not None and
-             self.get_time_preset_for_video(video_path) is not None ):
+        if (self.get_avenue_for_video(video_path) is not None and
+                self.get_time_preset_for_video(video_path) is not None and
+                self.get_direction_config_for_video(video_path) is not None):
             messagebox.showinfo(
                 "Info",
                 "Este video ya fue configurado. Para abrirlo, use 'Gestionar Cámaras'.",
@@ -287,29 +318,284 @@ class VideoPlayerOpenCV:
             )
             return
 
+        # Primero cargamos un frame para mostrar en la configuración
+        cap_tmp = cv2.VideoCapture(video_path)
+        ret, frame = cap_tmp.read()
+        cap_tmp.release()
+        
+        if not ret:
+            messagebox.showerror("Error", "No se pudo leer el vídeo para configuración.")
+            return
+        
         setup = tk.Toplevel(self.parent)
         setup.title("Configuración Inicial del Video")
-
-        tk.Label(setup, text="Nombre de la Avenida:")\
-          .grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        avenue_entry = tk.Entry(setup, width=30)
-        avenue_entry.grid(row=0, column=1, padx=5, pady=5)
-
-        tk.Label(setup, text="Tiempo Verde (s):")\
-          .grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        green_entry = tk.Entry(setup, width=10)
-        green_entry.grid(row=1, column=1, padx=5, pady=5)
-
-        tk.Label(setup, text="Tiempo Amarillo (s):")\
-          .grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        yellow_entry = tk.Entry(setup, width=10)
-        yellow_entry.grid(row=2, column=1, padx=5, pady=5)
-
-        tk.Label(setup, text="Tiempo Rojo (s):")\
-          .grid(row=3, column=0, sticky="w", padx=5, pady=5)
-        red_entry = tk.Entry(setup, width=10)
-        red_entry.grid(row=3, column=1, padx=5, pady=5)
-
+        setup.geometry("1200x600")
+        setup.minsize(900, 600)
+        
+        # Dividir la ventana en dos frames principales con el mismo tamaño
+        main_container = tk.Frame(setup)
+        main_container.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Frame izquierdo para la configuración
+        left_frame = tk.LabelFrame(main_container, text="Configuración del Semáforo", font=("Arial", 12, "bold"))
+        left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        
+        # Frame derecho para la visualización
+        right_frame = tk.LabelFrame(main_container, text="Definición de Áreas Direccionales", font=("Arial", 12, "bold"))
+        right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+        
+        # Contenido del frame izquierdo
+        config_container = tk.Frame(left_frame)
+        config_container.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        # Nombre de la Avenida
+        tk.Label(config_container, text="Nombre de la Avenida:", font=("Arial", 11))\
+            .grid(row=0, column=0, sticky="w", padx=5, pady=10)
+        avenue_entry = tk.Entry(config_container, width=30, font=("Arial", 11))
+        avenue_entry.grid(row=0, column=1, padx=5, pady=10, sticky="ew")
+        
+        # Sección Tiempos del Semáforo
+        tk.Label(config_container, text="TIEMPOS DEL SEMÁFORO", font=("Arial", 11, "bold"))\
+            .grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=(20, 5))
+        
+        # Tiempo Verde
+        tk.Label(config_container, text="Tiempo Verde (s):", font=("Arial", 11))\
+            .grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        green_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
+        green_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        green_entry.insert(0, "30")
+        
+        # Tiempo Amarillo
+        tk.Label(config_container, text="Tiempo Amarillo (s):", font=("Arial", 11))\
+            .grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        yellow_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
+        yellow_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        yellow_entry.insert(0, "5")
+        
+        # Tiempo Rojo
+        tk.Label(config_container, text="Tiempo Rojo (s):", font=("Arial", 11))\
+            .grid(row=4, column=0, sticky="w", padx=5, pady=5)
+        red_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
+        red_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        red_entry.insert(0, "25")
+        
+        # Sección para configurar dirección de vehículos
+        tk.Label(config_container, text="CONFIGURACIÓN DE DIRECCIÓN", font=("Arial", 11, "bold"))\
+            .grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=(20, 5))
+        
+        # Instrucciones
+        tk.Label(config_container, text="Instrucciones:", font=("Arial", 11))\
+            .grid(row=6, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 0))
+        
+        instruction_text = ("1. Haga clic en el punto inicial de la vía.\n"
+                        "2. Haga clic en el punto final (dirección del tráfico).\n"
+                        "3. Se dibujará una flecha indicando la dirección permitida.\n"
+                        "4. Puede añadir múltiples direcciones.\n"
+                        "5. Para eliminar la última flecha añadida, use el botón 'Eliminar última'.")
+        
+        instruction_label = tk.Label(config_container, text=instruction_text, 
+                                font=("Arial", 10), justify="left", wraplength=350)
+        instruction_label.grid(row=7, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+        
+        # Botones para gestionar direcciones
+        btn_frame = tk.Frame(config_container)
+        btn_frame.grid(row=8, column=0, columnspan=2, pady=10)
+        
+        clear_last_btn = tk.Button(btn_frame, text="Eliminar última", 
+                                font=("Arial", 10), bg="#ffcccc", 
+                                command=lambda: clear_last_direction())
+        clear_last_btn.pack(side="left", padx=5)
+        
+        clear_all_btn = tk.Button(btn_frame, text="Limpiar todo", 
+                                font=("Arial", 10), bg="#ff9999",
+                                command=lambda: clear_all_directions())
+        clear_all_btn.pack(side="left", padx=5)
+        
+        # Menú desplegable para dirección predefinida
+        tk.Label(config_container, text="Dirección principal:", font=("Arial", 11))\
+            .grid(row=9, column=0, sticky="w", padx=5, pady=(10, 5))
+        
+        direction_var = tk.StringVar()
+        direction_var.set("right")  # valor predeterminado
+        
+        direction_menu = ttk.Combobox(config_container, textvariable=direction_var, 
+                                    width=10, font=("Arial", 11))
+        direction_menu['values'] = ("right", "left", "up", "down")
+        direction_menu.grid(row=9, column=1, sticky="w", padx=5, pady=(10, 5))
+        
+        # Frame derecho para mostrar el primer frame del vídeo
+        image_container = tk.Frame(right_frame, bg="#DBDBDB")
+        image_container.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Información de visualización
+        info_label = tk.Label(image_container, 
+                            text="Haga clic en la imagen para definir los puntos de dirección del tráfico",
+                            font=("Arial", 10), fg="black", bg="#DBDBDB")
+        info_label.pack(pady=(5, 0))
+        
+        # Canvas para mostrar el frame y permitir dibujar direcciones
+        # Calculamos dimensiones para mantener la relación de aspecto
+        frame_h, frame_w = frame.shape[:2]
+        aspect_ratio = frame_w / frame_h
+        
+        canvas_frame = tk.Frame(image_container, bg="#222222")
+        canvas_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # El canvas debe expandirse con la ventana
+        canvas = tk.Canvas(canvas_frame, bg="black", highlightthickness=1, highlightbackground="gray")
+        canvas.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        # Convertir frame a imagen para mostrar en canvas
+        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Redimensionamos para el tamaño inicial
+        display_width = 700
+        display_height = int(display_width / aspect_ratio)
+        
+        img_resized = cv2.resize(img, (display_width, display_height))
+        photo = ImageTk.PhotoImage(Image.fromarray(img_resized))
+        
+        # Mostrar imagen en el canvas
+        canvas_image = canvas.create_image(0, 0, image=photo, anchor="nw")
+        
+        # Ajustar canvas al tamaño de la imagen inicialmente
+        canvas.config(width=display_width, height=display_height)
+        
+        # Función para redimensionar la imagen cuando cambia el tamaño de la ventana
+        def on_resize(event):
+            # Solo procedar si tenemos dimensiones válidas
+            if event.width < 10 or event.height < 10:
+                return
+                
+            # Calcular nuevo tamaño manteniendo relación de aspecto
+            new_width = event.width
+            new_height = event.height
+            
+            # Redimensionar imagen
+            img_resized = cv2.resize(img, (new_width, new_height))
+            new_photo = ImageTk.PhotoImage(Image.fromarray(img_resized))
+            
+            # Actualizar imagen en canvas
+            canvas.itemconfig(canvas_image, image=new_photo)
+            canvas.image = new_photo  # Mantener referencia
+            
+            # Actualizar escala para las coordenadas de los puntos
+            nonlocal scale_x, scale_y
+            scale_x = frame_w / new_width
+            scale_y = frame_h / new_height
+            
+            # Redibujar flechas si hay
+            redraw_arrows()
+        
+        # Vinculamos evento de redimensionamiento
+        canvas.bind("<Configure>", on_resize)
+        
+        # Lista para almacenar direcciones definidas por el usuario
+        directions = []
+        current_line = []  # Para almacenar puntos temporales durante el dibujo
+        arrows = []  # Referencias a los objetos flecha en el canvas
+        
+        # Escala inicial
+        scale_x = frame_w / display_width
+        scale_y = frame_h / display_height
+        
+        def redraw_arrows():
+            # Limpiar flechas actuales
+            for arrow_id in arrows:
+                canvas.delete(arrow_id)
+            arrows.clear()
+            
+            # Redibujar todas las direcciones guardadas
+            for i, dir_data in enumerate(directions):
+                x1, y1 = dir_data['canvas_coords'][0]
+                x2, y2 = dir_data['canvas_coords'][1]
+                
+                # Ajustar coordenadas a nueva escala
+                x1_scaled = int(x1 * (canvas.winfo_width() / display_width))
+                y1_scaled = int(y1 * (canvas.winfo_height() / display_height))
+                x2_scaled = int(x2 * (canvas.winfo_width() / display_width))
+                y2_scaled = int(y2 * (canvas.winfo_height() / display_height))
+                
+                arrow_id = canvas.create_line(
+                    x1_scaled, y1_scaled, x2_scaled, y2_scaled, 
+                    fill="lime", width=3, arrow="last", 
+                    tags=f"arrow_{i}"
+                )
+                arrows.append(arrow_id)
+        
+        def on_canvas_click(event):
+            nonlocal current_line
+            
+            # Ajustar coordenadas al tamaño actual del canvas
+            canvas_width = canvas.winfo_width()
+            canvas_height = canvas.winfo_height()
+            
+            # Primer punto o segundo punto
+            if len(current_line) == 0:
+                current_line = [(event.x, event.y)]
+                # Marcar el punto inicial con un círculo
+                canvas.create_oval(event.x-5, event.y-5, event.x+5, event.y+5, 
+                                fill="yellow", outline="black", tags="temp_point")
+            else:
+                # Segundo punto - completamos la dirección
+                x1, y1 = current_line[0]
+                x2, y2 = event.x, event.y
+                
+                # Verificar distancia mínima
+                distance = ((x2-x1)**2 + (y2-y1)**2)**0.5
+                if distance < 50:
+                    messagebox.showwarning("Advertencia", 
+                                        "La flecha es demasiado corta. Por favor intente de nuevo.", 
+                                        parent=setup)
+                    canvas.delete("temp_point")
+                    current_line = []
+                    return
+                
+                # Convertir coordenadas de canvas a coordenadas reales del frame
+                real_x1 = int(x1 * scale_x)
+                real_y1 = int(y1 * scale_y)
+                real_x2 = int(x2 * scale_x)
+                real_y2 = int(y2 * scale_y)
+                
+                # Guardar dirección
+                directions.append({
+                    'canvas_coords': [(x1, y1), (x2, y2)],
+                    'frame_coords': [(real_x1, real_y1), (real_x2, real_y2)]
+                })
+                
+                # Dibujar flecha permanente
+                arrow_id = canvas.create_line(x1, y1, x2, y2, fill="lime", width=3, 
+                                        arrow="last", tags=f"arrow_{len(directions)}")
+                arrows.append(arrow_id)
+                
+                # Limpiar punto temporal y reiniciar
+                canvas.delete("temp_point")
+                current_line = []
+        
+        def clear_last_direction():
+            if arrows:
+                canvas.delete(arrows[-1])
+                arrows.pop()
+                if directions:
+                    directions.pop()
+        
+        def clear_all_directions():
+            for arrow_id in arrows:
+                canvas.delete(arrow_id)
+            arrows.clear()
+            directions.clear()
+        
+        # Vincular evento de clic en el canvas
+        canvas.bind("<Button-1>", on_canvas_click)
+        
+        # Botones para cancelar o guardar (abajo de la ventana)
+        buttons_frame = tk.Frame(setup)
+        buttons_frame.pack(side="bottom", fill="x", padx=10, pady=10)
+        
+        def cancelar():
+            if messagebox.askyesno("Confirmar", "¿Desea cancelar la configuración?", parent=setup):
+                setup.destroy()
+        
         def guardar():
             ave = avenue_entry.get().strip()
             try:
@@ -321,23 +607,65 @@ class VideoPlayerOpenCV:
                     "Error", "Los tiempos deben ser enteros.", parent=setup
                 )
                 return
+                    
             if not ave:
                 messagebox.showerror(
                     "Error", "Debe ingresar nombre de avenida.", parent=setup
                 )
                 return
+                    
+            if not directions and direction_var.get() == "":
+                messagebox.showerror(
+                    "Error", "Debe definir al menos una dirección de tráfico.", parent=setup
+                )
+                return
+                    
+            # Guardar configuración de avenida y semáforo
             self.set_avenue_for_video(video_path, ave)
             self.current_avenue = ave
             self.avenue_label.config(text=ave)
             self.set_time_preset_for_video(video_path, {"green":g,"yellow":y,"red":r})
-            messagebox.showinfo("Éxito","Configuración guardada.",parent=setup)
+            
+            # Guardar configuración de direcciones
+            direction_config = {
+                'main_direction': direction_var.get(),
+                'custom_directions': directions
+            }
+            self.set_direction_config_for_video(video_path, direction_config)
+            
+            # Configurar el detector de sentido contrario
+            if hasattr(self, 'wrong_way_detector'):
+                self.wrong_way_detector.set_allowed_direction(direction_var.get())
+                
+                # Configurar direcciones personalizadas si hay
+                if directions:
+                    # Convertir las direcciones personalizadas al formato necesario
+                    custom_directions = []
+                    for dir_data in directions:
+                        p1, p2 = dir_data['frame_coords']
+                        custom_directions.append({
+                            'start': p1,
+                            'end': p2
+                        })
+                    self.wrong_way_detector.set_custom_directions(custom_directions)
+            
+            messagebox.showinfo("Éxito", "Configuración guardada correctamente.", parent=setup)
             setup.destroy()
-
-        tk.Button(setup, text="Guardar Configuración", command=guardar)\
-          .grid(row=4, column=0, columnspan=2,pady=10)
-
+        
+        # Botones alineados a la derecha
+        tk.Button(buttons_frame, text="Cancelar", font=("Arial", 11), 
+                bg="#FF5252", fg="white", width=15, height=2,
+                command=cancelar).pack(side="right", padx=5)
+        
+        tk.Button(buttons_frame, text="Guardar y Cargar Video", font=("Arial", 11, "bold"), 
+                bg="#4CAF50", fg="white", width=20, height=2,
+                command=guardar).pack(side="right", padx=5)
+        
+        # Configurar comportamiento modal
         setup.transient(self.parent)
         setup.grab_set()
+        # Mantener referencia a la imagen para evitar que el garbage collector la elimine
+        setup.photo = photo
         self.parent.wait_window(setup)
 
     def on_mouse_click_polygon(self, event):
@@ -998,10 +1326,26 @@ class VideoPlayerOpenCV:
             messagebox.showerror("Error", str(e))
 
 
+    def remove_direction_data(self, video_path):
+        """Elimina la configuración de direcciones para un video específico."""
+        direction_config_file = "config/direction_config.json"
+        if not os.path.exists(direction_config_file):
+            return
+        try:
+            with open(direction_config_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data.pop(video_path, None)
+            with open(direction_config_file, "w", encoding="utf-8") as fw:
+                json.dump(data, fw, indent=2)
+        except:
+            pass
+
     def remove_video_data(self, video_path):
+        """Elimina todos los datos de configuración asociados a un video."""
         self.remove_avenue_data(video_path)
         self.remove_time_preset_data(video_path)
         self.remove_polygon_data(video_path)
+        self.remove_direction_data(video_path)
 
     def remove_avenue_data(self, video_path):
         if not os.path.exists(AVENUE_CONFIG_FILE):

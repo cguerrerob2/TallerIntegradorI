@@ -163,26 +163,49 @@ class WrongWayDetector:
                         # Normalizar vector de movimiento
                         movement_vector = movement_vector / movement_distance
                         
-                        # Determinar lado del carril (izquierdo o derecho de la línea azul)
-                        is_left_side = center_x < self.lane_divider
+                        # NUEVO: Comprobar si tenemos direcciones personalizadas definidas
+                        use_custom_direction = False
                         
-                        # Variación de movimiento permitido basada en la posición para cada carril
-                        if is_left_side:
-                            # Lado izquierdo:
-                            # - Movimiento hacia ARRIBA es PERMITIDO para autos parqueados o maniobras pequeñas
-                            # - Movimiento hacia ABAJO o DERECHA es dirección CORRECTA
-                            # - Movimiento significativo hacia IZQUIERDA es en SENTIDO CONTRARIO
-                            if movement_vector[0] < -0.7:  # Movimiento fuerte hacia izquierda
-                                self.tracked_objects[best_id]['wrong_way_count'] += 1
-                            else:
-                                self.tracked_objects[best_id]['wrong_way_count'] = max(
-                                    0, self.tracked_objects[best_id]['wrong_way_count'] - 1
-                                )
-                        else:
-                            # Lado derecho:
-                            # - Movimiento hacia ARRIBA o IZQUIERDA es dirección CORRECTA
-                            # - Movimiento hacia ABAJO o DERECHA es en SENTIDO CONTRARIO
-                            if movement_vector[0] > 0.7 or movement_vector[1] > 0.7:
+                        if hasattr(self, 'direction_vectors_custom') and self.direction_vectors_custom:
+                            # Buscar la dirección personalizada que aplica a esta posición
+                            applicable_direction = None
+                            for dir_config in self.direction_vectors_custom:
+                                region = dir_config['region']
+                                if (region['x1'] <= center_x <= region['x2'] and 
+                                    region['y1'] <= center_y <= region['y2']):
+                                    applicable_direction = dir_config
+                                    use_custom_direction = True
+                                    break
+                            
+                            if applicable_direction:
+                                # Calcular el ángulo entre el vector de movimiento y la dirección permitida
+                                allowed_vector = applicable_direction['vector']
+                                dot_product = np.dot(movement_vector, allowed_vector)
+                                angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0))
+                                angle_deg = np.degrees(angle_rad)
+                                
+                                # Si el ángulo es mayor a 90°, está yendo en dirección opuesta
+                                if angle_deg > 90:
+                                    self.tracked_objects[best_id]['wrong_way_count'] += 1
+                                else:
+                                    # Reducir el contador si se mueve en la dirección correcta
+                                    self.tracked_objects[best_id]['wrong_way_count'] = max(
+                                        0, self.tracked_objects[best_id]['wrong_way_count'] - 1
+                                    )
+                        
+                        # Si no hay dirección personalizada aplicable, usar la lógica estándar
+                        if not use_custom_direction:
+                            # Determinar lado del carril (izquierdo o derecho de la línea azul)
+                            is_left_side = center_x < self.lane_divider
+                            
+                            # Usar vector de dirección global configurado
+                            allowed_vector = self.direction_vectors[self.allowed_direction]
+                            
+                            # Calcular ángulo entre movimiento y dirección permitida
+                            dot_product = np.dot(movement_vector, allowed_vector)
+                            
+                            # Si el producto punto es negativo, el ángulo es mayor a 90 grados
+                            if dot_product < 0:
                                 self.tracked_objects[best_id]['wrong_way_count'] += 1
                             else:
                                 self.tracked_objects[best_id]['wrong_way_count'] = max(
@@ -208,16 +231,6 @@ class WrongWayDetector:
                         is_wrong_way = True
                 else:
                     # Si ya no cumple el criterio, quitarlo de la lista
-                    if best_id in self.wrong_way_vehicles:
-                        self.wrong_way_vehicles.remove(best_id)
-                
-                # REGLA ESPECIAL: La camioneta blanca está claramente en sentido correcto
-                # (basado en su posición y las flechas en la calle)
-                # La camioneta blanca suele estar en x > lane_divider y es más grande
-                van_width = x2 - x1
-                van_height = y2 - y1
-                if cls_id in [2, 7] and center_x > self.lane_divider and van_width > 100 and van_height > 100:
-                    is_wrong_way = False
                     if best_id in self.wrong_way_vehicles:
                         self.wrong_way_vehicles.remove(best_id)
                 
@@ -376,3 +389,66 @@ class WrongWayDetector:
                 self.tracked_objects[obj_id]['wrong_way_count'] = 0
             return True
         return False
+    
+    def set_custom_directions(self, directions):
+        """
+        Establece direcciones personalizadas para el análisis de sentido contrario.
+        
+        Args:
+            directions: Lista de diccionarios con 'start' y 'end' (coordenadas x,y)
+                    que definen las direcciones permitidas de tráfico
+        """
+        self.custom_directions = directions
+        
+        # Calcular vectores de dirección normalizados para cada dirección personalizada
+        self.direction_vectors_custom = []
+        for dir_data in directions:
+            start = np.array(dir_data['start'])
+            end = np.array(dir_data['end'])
+            
+            # Vector dirección (normalizado)
+            dir_vector = end - start
+            dist = np.linalg.norm(dir_vector)
+            
+            if dist > 0:  # Evitar división por cero
+                dir_vector = dir_vector / dist
+                self.direction_vectors_custom.append({
+                    'origin': start,
+                    'vector': dir_vector,
+                    'region': self._calculate_region(start, end)
+                })
+        
+        # Reiniciar detecciones
+        self.wrong_way_vehicles = set()
+        for obj_id in self.tracked_objects:
+            self.tracked_objects[obj_id]['wrong_way_count'] = 0
+        
+        print(f"Configuradas {len(self.direction_vectors_custom)} direcciones personalizadas")
+
+    def _calculate_region(self, start, end):
+        """
+        Calcula una región rectangular que contiene los puntos start y end.
+        Utilizado para determinar qué regla de dirección aplicar a cada vehículo.
+        """
+        x1, y1 = start
+        x2, y2 = end
+        
+        # Crear un rectángulo 10% más grande que la distancia entre los puntos
+        min_x = min(x1, x2)
+        max_x = max(x1, x2)
+        min_y = min(y1, y2)
+        max_y = max(y1, y2)
+        
+        width = max_x - min_x
+        height = max_y - min_y
+        
+        # Añadir margen (10% a cada lado)
+        margin_x = width * 0.1
+        margin_y = height * 0.1
+        
+        return {
+            'x1': min_x - margin_x,
+            'y1': min_y - margin_y,
+            'x2': max_x + margin_x,
+            'y2': max_y + margin_y
+        }
