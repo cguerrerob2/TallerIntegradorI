@@ -5,93 +5,49 @@
       {
         "canvas_coords": [
           [
-            307,
-            171
+            529,
+            90
           ],
           [
-            238,
-            365
+            419,
+            369
           ]
         ],
         "frame_coords": [
           [
-            1275,
-            364
+            1534,
+            228
           ],
           [
-            989,
-            779
-          ]
-        ]
-      },
-      {
-        "canvas_coords": [
-          [
-            426,
-            191
-          ],
-          [
-            392,
-            375
-          ]
-        ],
-        "frame_coords": [
-          [
-            1770,
-            407
-          ],
-          [
-            1629,
-            800
+            1215,
+            937
           ]
         ]
       }
     ]
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\YF_DzoTDO-0.mp4": {
-    "main_direction": "down",
+    "main_direction": "right",
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            176,
-            88
+            195,
+            89
           ],
           [
-            567,
-            306
+            483,
+            282
           ]
         ],
         "frame_coords": [
           [
-            680,
-            298
+            754,
+            301
           ],
           [
-            2192,
-            1036
-          ]
-        ]
-      },
-      {
-        "canvas_coords": [
-          [
-            23,
-            287
-          ],
-          [
-            73,
-            112
-          ]
-        ],
-        "frame_coords": [
-          [
-            88,
-            972
-          ],
-          [
-            282,
-            379
+            1867,
+            955
           ]
         ]
       }
@@ -163,6 +119,55 @@
           [
             864,
             851
+          ]
+        ]
+      }
+    ]
+  },
+  "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\W_A4xFDNjnU.mp4": {
+    "main_direction": "down",
+    "custom_directions": [
+      {
+        "canvas_coords": [
+          [
+            366,
+            107
+          ],
+          [
+            400,
+            332
+          ]
+        ],
+        "frame_coords": [
+          [
+            707,
+            181
+          ],
+          [
+            773,
+            562
+          ]
+        ]
+      },
+      {
+        "canvas_coords": [
+          [
+            119,
+            314
+          ],
+          [
+            223,
+            101
+          ]
+        ],
+        "frame_coords": [
+          [
+            230,
+            531
+          ],
+          [
+            431,
+            171
           ]
         ]
       }

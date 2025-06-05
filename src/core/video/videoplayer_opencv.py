@@ -19,7 +19,6 @@ from ultralytics import YOLO
 from src.core.detection.accident_detector import AccidentDetector
 from src.core.detection.wrongway_detector import WrongWayDetector
 from src.core.detection.speed_detector import SpeedDetector
-from src.core.detection.plate_detector import PlateDetector
 from src.core.detection.vehicle_detector import VehicleDetector
 from src.core.processing.plate_processing import process_plate
 
@@ -180,16 +179,16 @@ class VideoPlayerOpenCV:
 
         # Timestamp y avenida
         self.timestamp_label.config(
-            font=("Arial",30,"bold"), bg="black", fg="yellow"
+            font=("Arial",12,"bold"), bg="black", fg="yellow"
         )
-        self.timestamp_label.place(in_=self.video_label, x=50, y=10)
+        self.timestamp_label.place(in_=self.video_label, x=220, y=10)
 
         self.current_avenue = None
         self.avenue_label = tk.Label(
             self.video_frame, text="", font=("Arial",20,"bold"),
             bg="black", fg="white", wraplength=300
         )
-        self.avenue_label.place(relx=0.5, y=80, anchor="n")
+        self.avenue_label.place(relx=0.5, y=40, anchor="n")
 
         # Info CPU/FPS/RAM
         self.info_label = tk.Label(

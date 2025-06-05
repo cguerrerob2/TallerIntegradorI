@@ -6,10 +6,8 @@ from src.core.traffic_signal.semaphore import Semaforo
 from src.core.video.videoplayer_opencv import VideoPlayerOpenCV
 
 def create_violation_window(container: tk.Widget, back_callback):
-    # Panel izquierdo: semáforo
-    left = tk.Frame(container, bg="white", width=260)
-    left.pack(side="left", fill="y", expand=False)
-    sem = Semaforo(left)
+    # Creamos el semáforo pero sin mostrar su interfaz visual
+    sem = Semaforo(container, visible=False)
 
     # Panel central: video + timestamp + placas
     center = tk.Frame(container, bg="black")

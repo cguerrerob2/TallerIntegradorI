@@ -17,18 +17,24 @@ class Semaforo:
     asociados a un nombre de vídeo.
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, visible=True):
         self.parent = parent
+        self.visible = visible
+        
+        # Si no es visible, creamos un frame pero no lo empacamos
         self.frame = tk.Frame(parent, bg='white')
-        self.frame.pack(side="top", fill="both", expand=True)
+        if visible:
+            self.frame.pack(side="top", fill="both", expand=True)
 
         # Canvas para semáforo
         self.canvas = tk.Canvas(self.frame, bg='white', highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True, pady=10)
+        if visible:
+            self.canvas.pack(fill="both", expand=True, pady=10)
 
         # Label de estado y tiempos
         self.info_label = tk.Label(self.frame, text="", font=("Arial", 14), bg='white')
-        self.info_label.pack(pady=(0, 10))
+        if visible:
+            self.info_label.pack(pady=(0, 10))
 
         # Botón para abrir configuración de tiempos
         self.btn_tiempos = tk.Button(
@@ -36,16 +42,18 @@ class Semaforo:
             command=self.gestionar_tiempos, width=20,
             bg="#3c3c3c", fg="white", bd=0, activebackground="#d9d9d9", activeforeground="white", pady=8,
         )
-        self.btn_tiempos.pack(pady=5)
+        if visible:
+            self.btn_tiempos.pack(pady=5)
 
-        # Dibujar carcasa y luces
+        # Dibujar carcasa y luces (incluso si no es visible, para mantener la lógica)
         self.housing_rect = self.canvas.create_rectangle(0, 0, 0, 0,
-                                                         fill="black", outline="gray", width=3)
+                                                        fill="black", outline="gray", width=3)
         self.red_light    = self.canvas.create_oval(0, 0, 0, 0, fill="grey", outline="white", width=1)
         self.yellow_light = self.canvas.create_oval(0, 0, 0, 0, fill="grey", outline="white", width=1)
         self.green_light  = self.canvas.create_oval(0, 0, 0, 0, fill="grey", outline="white", width=1)
 
-        self.canvas.bind("<Configure>", self.resize_canvas)
+        if visible:
+            self.canvas.bind("<Configure>", self.resize_canvas)
 
         # Estado inicial y duraciones por defecto
         self.current_state = "green"
