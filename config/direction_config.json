@@ -6,22 +6,22 @@
       {
         "canvas_coords": [
           [
-            383,
-            353
+            388,
+            358
           ],
           [
-            525,
-            94
+            514,
+            128
           ]
         ],
         "frame_coords": [
           [
-            1110,
-            939
+            1125,
+            952
           ],
           [
-            1522,
-            250
+            1490,
+            340
           ]
         ]
       }
@@ -56,50 +56,50 @@
     ]
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\1080P 2.0Megapixel IP camera video on road.mp4": {
-    "main_direction": "down",
-    "secondary_direction": "up",
+    "main_direction": "up",
+    "secondary_direction": "down",
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            222,
-            184
+            294,
+            358
           ],
           [
-            192,
-            315
+            298,
+            182
           ]
         ],
         "frame_coords": [
           [
-            643,
-            489
+            852,
+            952
           ],
           [
-            556,
-            837
+            864,
+            484
           ]
         ]
       },
       {
         "canvas_coords": [
           [
-            416,
-            325
+            371,
+            180
           ],
           [
-            375,
-            160
+            426,
+            379
           ]
         ],
         "frame_coords": [
           [
-            1206,
-            864
+            1076,
+            478
           ],
           [
-            1087,
-            425
+            1235,
+            1008
           ]
         ]
       }

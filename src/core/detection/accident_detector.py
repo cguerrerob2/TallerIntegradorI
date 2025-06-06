@@ -482,6 +482,47 @@ class AccidentDetector:
                     if intersection_area < pedestrian_area * 0.3:
                         continue
                     
+                    # DETECCIÓN MEJORADA DE MOTOCICLISTA
+                    # 1. Verificar posición relativa - en una moto el "peatón" está encima del "vehículo"
+                    ped_center_x = (pbb[0] + pbb[2]) // 2
+                    ped_center_y = (pbb[1] + pbb[3]) // 2
+                    veh_center_x = (vbb[0] + vbb[2]) // 2
+                    veh_center_y = (vbb[1] + vbb[3]) // 2
+                    
+                    # 2. Calcular área solapada proporcional al área total del peatón
+                    overlap_ratio = intersection_area / pedestrian_area
+                    
+                    # 3. Múltiples criterios para identificar un motociclista:
+                    is_motorcycle_rider = False
+                    
+                    # a) El centro del peatón está cerca del centro horizontal del vehículo
+                    horizontal_alignment = abs(ped_center_x - veh_center_x) < (vbb[2] - vbb[0]) * 0.4
+                    
+                    # b) El peatón está sobre o en la parte delantera del vehículo
+                    on_vehicle = ped_center_y > vbb[1] and ped_center_y < vbb[1] + (vbb[3] - vbb[1]) * 0.7
+                    
+                    # c) Superposición significativa para motociclistas
+                    high_overlap = overlap_ratio > 0.4
+                    
+                    # d) Relación de aspecto del vehículo típica de motocicleta
+                    veh_width = vbb[2] - vbb[0]
+                    veh_height = vbb[3] - vbb[1]
+                    motorcycle_aspect_ratio = veh_width / max(veh_height, 1) < 1.2
+                    
+                    # e) Posición típica del motociclista (parte superior centrada)
+                    typical_position = horizontal_alignment and on_vehicle
+                    
+                    # Combinación de criterios para detectar un motociclista
+                    if (typical_position and high_overlap) or (motorcycle_aspect_ratio and horizontal_alignment):
+                        is_motorcycle_rider = True
+                    
+                    # Si parece ser un motociclista, no es un atropello
+                    if is_motorcycle_rider:
+                        collision_id = f"ped_{pedestrian_id}_{vehicle_id}"
+                        if collision_id in self.accident_confidence:
+                            self.accident_confidence[collision_id] = 0  # Resetear confianza
+                        continue
+                    
                     # Verificar que el vehículo está en movimiento (velocidad significativa)
                     vehicle_moving = vehicle['speed'] > 1.5 or (
                         len(self.velocity_history[vehicle_id]) > 3 and 
