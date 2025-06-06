@@ -1,5 +1,6 @@
 # src/video/videoplayer_opencv.py
 
+import random
 from tkinter import ttk
 import cv2
 import threading
@@ -43,6 +44,10 @@ class VideoPlayerOpenCV:
             cooldown=5.0,
             save_dir="data/output"
         )
+
+        # AGREGAR: Para seguimiento de vehículos infractores
+        self.vehicles_info = {}
+        self.infractor_counter = 0
 
         # Configuración CUDA para mejor rendimiento
         if torch.cuda.is_available():
@@ -305,7 +310,6 @@ class VideoPlayerOpenCV:
             json.dump(data, f, indent=2)
 
     # Modificación al método first_time_setup en VideoPlayerOpenCV
-    # Modificación al método first_time_setup en VideoPlayerOpenCV
     def first_time_setup(self, video_path):
         if (self.get_avenue_for_video(video_path) is not None and
                 self.get_time_preset_for_video(video_path) is not None and
@@ -336,7 +340,7 @@ class VideoPlayerOpenCV:
         main_container.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Frame izquierdo para la configuración
-        left_frame = tk.LabelFrame(main_container, text="Configuración del Semáforo", font=("Arial", 12, "bold"))
+        left_frame = tk.LabelFrame(main_container, text="Configuración General", font=("Arial", 12, "bold"))
         left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         # Frame derecho para la visualización
@@ -353,38 +357,18 @@ class VideoPlayerOpenCV:
         avenue_entry = tk.Entry(config_container, width=30, font=("Arial", 11))
         avenue_entry.grid(row=0, column=1, padx=5, pady=10, sticky="ew")
         
-        # Sección Tiempos del Semáforo
-        tk.Label(config_container, text="TIEMPOS DEL SEMÁFORO", font=("Arial", 11, "bold"))\
-            .grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=(20, 5))
+        # Variables ocultas para los tiempos del semáforo (con valores predeterminados)
+        green_var = tk.StringVar(value="30")
+        yellow_var = tk.StringVar(value="5")
+        red_var = tk.StringVar(value="25")
         
-        # Tiempo Verde
-        tk.Label(config_container, text="Tiempo Verde (s):", font=("Arial", 11))\
-            .grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        green_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
-        green_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        green_entry.insert(0, "30")
-        
-        # Tiempo Amarillo
-        tk.Label(config_container, text="Tiempo Amarillo (s):", font=("Arial", 11))\
-            .grid(row=3, column=0, sticky="w", padx=5, pady=5)
-        yellow_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
-        yellow_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        yellow_entry.insert(0, "5")
-        
-        # Tiempo Rojo
-        tk.Label(config_container, text="Tiempo Rojo (s):", font=("Arial", 11))\
-            .grid(row=4, column=0, sticky="w", padx=5, pady=5)
-        red_entry = tk.Entry(config_container, width=10, font=("Arial", 11))
-        red_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
-        red_entry.insert(0, "25")
-        
-        # Sección para configurar dirección de vehículos
+        # Sección para configurar dirección de vehículos (ahora en fila 1 en lugar de fila 5)
         tk.Label(config_container, text="CONFIGURACIÓN DE DIRECCIÓN", font=("Arial", 11, "bold"))\
-            .grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=(20, 5))
+            .grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=(20, 5))
         
         # Instrucciones
         tk.Label(config_container, text="Instrucciones:", font=("Arial", 11))\
-            .grid(row=6, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 0))
+            .grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 0))
         
         instruction_text = ("1. Haga clic en el punto inicial de la vía.\n"
                         "2. Haga clic en el punto final (dirección del tráfico).\n"
@@ -394,11 +378,11 @@ class VideoPlayerOpenCV:
         
         instruction_label = tk.Label(config_container, text=instruction_text, 
                                 font=("Arial", 10), justify="left", wraplength=350)
-        instruction_label.grid(row=7, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+        instruction_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=5)
         
         # Botones para gestionar direcciones
         btn_frame = tk.Frame(config_container)
-        btn_frame.grid(row=8, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
         
         clear_last_btn = tk.Button(btn_frame, text="Eliminar última", 
                                 font=("Arial", 10), bg="#ffcccc", 
@@ -410,17 +394,35 @@ class VideoPlayerOpenCV:
                                 command=lambda: clear_all_directions())
         clear_all_btn.pack(side="left", padx=5)
         
-        # Menú desplegable para dirección predefinida
+        # Dirección principal
         tk.Label(config_container, text="Dirección principal:", font=("Arial", 11))\
-            .grid(row=9, column=0, sticky="w", padx=5, pady=(10, 5))
+            .grid(row=5, column=0, sticky="w", padx=5, pady=(10, 5))
         
         direction_var = tk.StringVar()
-        direction_var.set("right")  # valor predeterminado
+        direction_var.set("down")  # valor predeterminado
         
         direction_menu = ttk.Combobox(config_container, textvariable=direction_var, 
-                                    width=10, font=("Arial", 11))
-        direction_menu['values'] = ("right", "left", "up", "down")
-        direction_menu.grid(row=9, column=1, sticky="w", padx=5, pady=(10, 5))
+                                    width=10, font=("Arial", 11), state="readonly")
+        direction_menu['values'] = ("up", "down", "right", "left")
+        direction_menu.grid(row=5, column=1, sticky="w", padx=5, pady=(10, 5))
+        
+        # Dirección secundaria
+        tk.Label(config_container, text="Dirección secundaria:", font=("Arial", 11))\
+            .grid(row=6, column=0, sticky="w", padx=5, pady=(10, 5))
+        
+        secondary_direction_var = tk.StringVar()
+        secondary_direction_var.set("")  # Inicialmente vacío
+        
+        secondary_direction_menu = ttk.Combobox(config_container, textvariable=secondary_direction_var, 
+                                    width=10, font=("Arial", 11), state="readonly")
+        secondary_direction_menu['values'] = ("", "up", "down", "right", "left")
+        secondary_direction_menu.grid(row=6, column=1, sticky="w", padx=5, pady=(10, 5))
+        
+        # Información sobre la dirección secundaria
+        secondary_info_text = "(La dirección secundaria se utilizará como alternativa\npermitida para confirmar el sentido contrario)"
+        secondary_info_label = tk.Label(config_container, text=secondary_info_text, 
+                                    font=("Arial", 9), fg="gray", justify="left")
+        secondary_info_label.grid(row=7, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 10))
         
         # Frame derecho para mostrar el primer frame del vídeo
         image_container = tk.Frame(right_frame, bg="#DBDBDB")
@@ -598,12 +600,12 @@ class VideoPlayerOpenCV:
         def guardar():
             ave = avenue_entry.get().strip()
             try:
-                g = int(green_entry.get().strip())
-                y = int(yellow_entry.get().strip())
-                r = int(red_entry.get().strip())
+                g = int(green_var.get().strip())
+                y = int(yellow_var.get().strip())
+                r = int(red_var.get().strip())
             except ValueError:
                 messagebox.showerror(
-                    "Error", "Los tiempos deben ser enteros.", parent=setup
+                    "Error", "Error en la configuración.", parent=setup
                 )
                 return
                     
@@ -625,16 +627,24 @@ class VideoPlayerOpenCV:
             self.avenue_label.config(text=ave)
             self.set_time_preset_for_video(video_path, {"green":g,"yellow":y,"red":r})
             
+            # Obtener dirección secundaria
+            secondary_direction = secondary_direction_var.get() if secondary_direction_var.get() else None
+            
             # Guardar configuración de direcciones
             direction_config = {
                 'main_direction': direction_var.get(),
+                'secondary_direction': secondary_direction,
                 'custom_directions': directions
             }
             self.set_direction_config_for_video(video_path, direction_config)
             
             # Configurar el detector de sentido contrario
             if hasattr(self, 'wrong_way_detector'):
+                # Configurar dirección principal
                 self.wrong_way_detector.set_allowed_direction(direction_var.get())
+                
+                # Configurar dirección secundaria
+                self.wrong_way_detector.set_secondary_direction(secondary_direction)
                 
                 # Configurar direcciones personalizadas si hay
                 if directions:
@@ -646,7 +656,8 @@ class VideoPlayerOpenCV:
                             'start': p1,
                             'end': p2
                         })
-                    self.wrong_way_detector.set_custom_directions(custom_directions)
+                    # Pasar la dirección secundaria al configurar las direcciones personalizadas
+                    self.wrong_way_detector.set_custom_directions(custom_directions, secondary_direction)
             
             messagebox.showinfo("Éxito", "Configuración guardada correctamente.", parent=setup)
             setup.destroy()
@@ -851,19 +862,68 @@ class VideoPlayerOpenCV:
             self.cap = None
 
     def plate_loop(self):
+        # Contador para vehículos infractores
+        if not hasattr(self, 'infractor_counter'):
+            self.infractor_counter = 0
+            
         while self.plate_running:
             try:
-                frame, roi = self.plate_queue.get(timeout=1)
-            except queue.Empty:
-                continue
-            bbox, plate_sr, ocr_text = process_plate(roi)
-            if ocr_text:
-                stamp = int(time.time())
-                fname = f"plate_{ocr_text}_{stamp}.jpg"
-                os.makedirs("data/output", exist_ok=True)
-                cv2.imwrite(os.path.join("data/output", fname), plate_sr)
-                self._safe_add_plate_to_panel(plate_sr, ocr_text)
-            self.plate_queue.task_done()
+                # Obtener de la cola con timeout para no bloquear indefinidamente
+                try:
+                    # Nueva versión recibe el license_id desde update_frames
+                    frame, roi, license_id = self.plate_queue.get(timeout=1)
+                except ValueError:
+                    # Compatibilidad con versiones anteriores
+                    frame, roi = self.plate_queue.get(timeout=1)
+                    license_id = None
+                except queue.Empty:
+                    continue
+                
+                # MODIFICACIÓN: Solo procesar vehículos infractores con un nombre secuencial
+                if license_id and "wrong_way" in str(license_id):
+                    # Incrementar contador para el nombre secuencial
+                    self.infractor_counter += 1
+                    
+                    # Generar nombre para el archivo
+                    vehicle_id = f"vehiculo_infractor_{self.infractor_counter}"
+                    
+                    # MODIFICACIÓN: Ya no procesamos la placa, guardamos directamente el ROI
+                    print(f"¡Vehículo infractor detectado! ID: {vehicle_id}")
+                    
+                    # Guardar imagen del vehículo
+                    os.makedirs("data/output", exist_ok=True)
+                    output_path = os.path.join("data/output", f"{vehicle_id}.jpg")
+                    cv2.imwrite(output_path, roi)
+                    print(f"Guardado: {output_path}")
+                    
+                    # Añadir a la interfaz
+                    self._safe_add_plate_to_panel(roi, f"Infractor #{self.infractor_counter}")
+                
+                # Para otras detecciones (no infractores), procesar normalmente
+                elif license_id is None and frame is not None:
+                    # Código original para procesamiento de ROI por polígono
+                    bbox, plate_sr, ocr_text = process_plate(roi)
+                    if ocr_text and plate_sr is not None and plate_sr.size > 0:
+                        # Verificar si ya hemos procesado esta placa
+                        if ocr_text not in self.seen_plates:
+                            # Registrar esta placa como vista
+                            self.seen_plates.add(ocr_text)
+                            
+                            # Guardar imagen de la placa
+                            stamp = int(time.time())
+                            fname = f"plate_{ocr_text}_{stamp}.jpg"
+                            os.makedirs("data/output", exist_ok=True)
+                            cv2.imwrite(os.path.join("data/output", fname), plate_sr)
+                            
+                            # Añadir a la interfaz
+                            self._safe_add_plate_to_panel(plate_sr, ocr_text)
+                    
+                self.plate_queue.task_done()
+                
+            except Exception as e:
+                print(f"Error en plate_loop: {e}")
+                import traceback
+                traceback.print_exc()
 
     def detect_and_draw_cars(self, frame):
         """
@@ -916,7 +976,7 @@ class VideoPlayerOpenCV:
             
             # 5. Dibujar la línea divisoria y las flechas de dirección
             h, w = frame.shape[:2]
-            lane_divider = w // 2
+            # lane_divider = w // 2
             # cv2.line(frame_with_cars, (lane_divider, 0), (lane_divider, h), 
             #         (255, 200, 0), 2, cv2.LINE_AA)
                     
@@ -942,7 +1002,8 @@ class VideoPlayerOpenCV:
                     'bbox': detect[:4],    # x1, y1, x2, y2
                     'cls_id': detect[4],   # clase
                     'speed': detect[6],    # velocidad
-                    'wrong_way': False     # por defecto no está en sentido contrario
+                    'wrong_way': False,    # por defecto no está en sentido contrario
+                    'id': obj_id           # ID único del vehículo para seguimiento
                 }
                 
             # Actualizar info con detecciones de sentido contrario
@@ -958,9 +1019,10 @@ class VideoPlayerOpenCV:
                         'bbox': detect[:4],     # x1, y1, x2, y2
                         'cls_id': detect[4],    # clase
                         'speed': 0.0,           # velocidad desconocida
-                        'wrong_way': is_wrong_way
+                        'wrong_way': is_wrong_way,
+                        'id': obj_id            # ID único del vehículo
                     }
-                    
+                        
             # 7. Dibujar los resultados integrados
             for obj_id, info in vehicles_info.items():
                 x1, y1, x2, y2 = info['bbox']
@@ -1023,6 +1085,9 @@ class VideoPlayerOpenCV:
                 cv2.putText(frame_with_cars, f"ALERTA: {wrong_way_count} VEHICULOS EN SENTIDO CONTRARIO", 
                         (20, 45),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            
+            # Almacenar información de vehículos para uso posterior
+            self.vehicles_info = vehicles_info
                 
         except Exception as e:
             print(f"Error al detectar vehículos y velocidad: {str(e)}")
@@ -1052,15 +1117,105 @@ class VideoPlayerOpenCV:
             pts = np.array(self.polygon_points, np.int32).reshape(-1, 1, 2)
             cv2.polylines(frame_with_cars, [pts], True, (0, 0, 255), 2)
 
-        # Procesar placas si está en rojo (tu código existente)
-        if self.semaforo.get_current_state() == "red" and not self.plate_queue.full():
-            if self.polygon_points:
+        # MEJORA: Sistema de persistencia para vehículos en sentido contrario
+        current_time = time.time()
+        
+        # Inicializar dict de seguimiento de tiempo para vehículos en sentido contrario, si no existe
+        if not hasattr(self, 'wrong_way_tracking'):
+            self.wrong_way_tracking = {}
+            
+        # Lista para mantener vehículos que ya no están en sentido contrario
+        vehicles_to_remove = []
+        
+        # CORRECCIÓN: Procesar SOLO placas de vehículos infractores que persistan en sentido contrario
+        try:
+            # Verificar si tenemos vehículos en sentido contrario
+            infractors = []
+            
+            # Actualizar el seguimiento para cada vehículo en sentido contrario
+            for vehicle_id, info in self.vehicles_info.items():
+                if info.get('wrong_way', False):
+                    # Si es la primera vez que vemos este vehículo en sentido contrario, registrar tiempo inicial
+                    if vehicle_id not in self.wrong_way_tracking:
+                        self.wrong_way_tracking[vehicle_id] = {
+                            'start_time': current_time,
+                            'last_seen': current_time,
+                            'captured': False
+                        }
+                    else:
+                        # Actualizar tiempo de último avistamiento
+                        self.wrong_way_tracking[vehicle_id]['last_seen'] = current_time
+                    
+                    # Verificar si el vehículo ha estado en sentido contrario por más de 2 segundos
+                    time_in_wrong_way = current_time - self.wrong_way_tracking[vehicle_id]['start_time']
+                    if time_in_wrong_way >= 2.0 and not self.wrong_way_tracking[vehicle_id]['captured']:
+                        # Ha estado en sentido contrario suficiente tiempo, añadir a infractores
+                        infractors.append({
+                            'id': vehicle_id,
+                            'bbox': info['bbox'],
+                            'license_id': f"wrong_way_{vehicle_id}"
+                        })
+                        # Marcar como capturado para evitar múltiples capturas seguidas
+                        self.wrong_way_tracking[vehicle_id]['captured'] = True
+                else:
+                    # Si el vehículo ya no está en sentido contrario pero estaba siendo seguido,
+                    # reiniciar su seguimiento
+                    if vehicle_id in self.wrong_way_tracking:
+                        vehicles_to_remove.append(vehicle_id)
+            
+            # Limpiar seguimiento de vehículos que ya no están en sentido contrario o no se han visto en un tiempo
+            for vehicle_id in list(self.wrong_way_tracking.keys()):
+                if vehicle_id in vehicles_to_remove or (current_time - self.wrong_way_tracking[vehicle_id]['last_seen'] > 3.0):
+                    del self.wrong_way_tracking[vehicle_id]
+            
+            # Procesar infractores si hay y no está llena la cola
+            if infractors and not self.plate_queue.full():
+                for infractor in infractors:
+                    # Crear un ID único que no cambie entre frames para este vehículo
+                    license_id = infractor['license_id']
+                    
+                    # Solo evitar duplicados muy cercanos (en los últimos segundos)
+                    timestamp_key = f"{license_id}_{int(current_time) // 5}"  # Agrupar por intervalos de 5 segundos
+                    if timestamp_key in self.seen_plates:
+                        continue
+                        
+                    # Recortar región ampliada del vehículo infractor
+                    x1, y1, x2, y2 = [int(c) for c in infractor['bbox']]
+                    
+                    # Expandir área para capturar mejor el vehículo completo
+                    h, w = frame.shape[:2]
+                    margin_x = max(50, (x2 - x1) // 2)  # Margen horizontal amplio 
+                    margin_y = max(50, (y2 - y1) // 2)  # Margen vertical amplio
+                    
+                    x1 = max(0, x1 - margin_x)
+                    y1 = max(0, y1 - margin_y)
+                    x2 = min(w, x2 + margin_x)
+                    y2 = min(h, y2 + margin_y)
+                    
+                    vehicle_roi = frame[y1:y2, x1:x2].copy()  # Usar copy() para evitar problemas de referencia
+                    
+                    # Verificar que tengamos una región válida
+                    if vehicle_roi.size > 0 and vehicle_roi.shape[0] > 20 and vehicle_roi.shape[1] > 20:
+                        print(f"Procesando vehículo infractor ID: {infractor['id']} - Tiempo en sentido contrario: {time_in_wrong_way:.1f}s")
+                        
+                        # Añadir a la cola de procesamiento con frame completo y license_id
+                        self.plate_queue.put((frame.copy(), vehicle_roi, license_id))
+                        
+                        # Marcar este vehículo como procesado SOLO para este intervalo de tiempo
+                        self.seen_plates.add(timestamp_key)
+            
+            # Si no hay infractores pero hay polígono, usar comportamiento original solo en rojo
+            elif self.polygon_points and self.semaforo.get_current_state() == "red" and not self.plate_queue.full():
                 mask = np.zeros(frame.shape[:2], dtype=np.uint8)
                 cv2.fillPoly(mask, [pts], 255)
                 roi = cv2.bitwise_and(frame, frame, mask=mask)
-            else:
-                roi = frame.copy()
-            self.plate_queue.put((frame.copy(), roi))
+                
+                # Usar None como license_id para distinguir detecciones por polígono
+                self.plate_queue.put((frame.copy(), roi, None))
+        except Exception as e:
+            print(f"Error al procesar vehículos infractores: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Mostrar el frame anotado
         bgr_img = self.resize_and_letterbox(frame_with_cars)
@@ -1092,20 +1247,19 @@ class VideoPlayerOpenCV:
 
     def _safe_add_plate_to_panel(self, plate_image, text):
         """
-        Añade de forma segura una placa detectada al panel lateral,
-        mostrando cada placa una debajo de otra de forma organizada.
-        """
-        # Evitar duplicados
-        if text in self.seen_plates:
-            return
-        self.seen_plates.add(text)
-        
+        Añade de forma segura una imagen detectada al panel lateral.
+        """        
         def _add():
             try:
+                # Verificar que la imagen es válida
+                if plate_image is None or plate_image.size == 0:
+                    print("Imagen inválida")
+                    return
+                    
                 # 1. Redimensionar para que todas tengan el mismo tamaño
                 h, w = plate_image.shape[:2]
                 # Mantener relación de aspecto pero normalizar altura
-                target_height = 60
+                target_height = 80  # Un poco más grande para mejor visualización
                 target_width = int(w * (target_height / h))
                 
                 # Limitar el ancho máximo al espacio disponible del panel
@@ -1140,7 +1294,7 @@ class VideoPlayerOpenCV:
                 plate_container.pack(fill="x", pady=10, padx=10)
                 
                 # 7. Añadir a la lista para poder limpiarlos después
-                self.detected_plates_widgets.append((plate_container, lbl_img, lbl_text))
+                self.detected_plates_widgets.append(plate_container)
                 
                 # 8. Ajustar scroll a la nueva altura
                 self.plates_canvas.update_idletasks()
@@ -1151,8 +1305,10 @@ class VideoPlayerOpenCV:
                 
             except Exception as e:
                 print(f"Error al añadir placa al panel: {e}")
+                import traceback
+                traceback.print_exc()
         
-        # Ejecutar en el hilo principal de UI
+        # Ejecutar en el hilo principal de UI para evitar problemas de concurrencia
         self.parent.after(0, _add)
 
     

@@ -204,6 +204,17 @@ class AccidentDetector:
                 if not (5 <= center_x < w-5 and 5 <= center_y < h-5):
                     continue
                 
+                # MEJORA 1: Validar velocidades anómalas - si el vehículo reporta velocidad pero no se mueve
+                if obj_id in self.position_history and len(self.position_history[obj_id]) >= 10:
+                    # Calcular desplazamiento total en los últimos 10 frames
+                    prev_positions = list(self.position_history[obj_id])[-10:]
+                    total_displacement = np.linalg.norm(prev_positions[-1] - prev_positions[0])
+                    
+                    # Si el vehículo reporta velocidad pero no se ha movido, ajustar la velocidad
+                    if speed_kmh > 3.0 and total_displacement < 15:
+                        # Corregir la velocidad a un valor bajo para evitar falsos positivos
+                        speed_kmh = 1.0  # Forzar velocidad baja para vehículos que no se mueven
+                
                 # Almacenar información actual
                 current_vehicles[obj_id] = {
                     'id': obj_id,
@@ -281,6 +292,37 @@ class AccidentDetector:
                         v1.get('frames_detected', 0) < 10 or
                         v2.get('frames_detected', 0) < 10):
                         continue
+                    
+                    # MEJORA 2: Verificación mucho más estricta para vehículos estacionados
+                    # Verificar desplazamiento total en los últimos 20 frames para ambos vehículos
+                    v1_displacement = 1000
+                    v2_displacement = 1000
+                    
+                    if id1 in self.position_history and len(self.position_history[id1]) >= 20:
+                        pos_history = list(self.position_history[id1])[-20:]
+                        v1_displacement = np.linalg.norm(pos_history[-1] - pos_history[0])
+                    
+                    if id2 in self.position_history and len(self.position_history[id2]) >= 20:
+                        pos_history = list(self.position_history[id2])[-20:]
+                        v2_displacement = np.linalg.norm(pos_history[-1] - pos_history[0])
+                    
+                    # Si ambos vehículos tienen desplazamiento mínimo y velocidad baja, son estacionarios
+                    if v1_displacement < 20 and v2_displacement < 20 and v1['speed'] <= 2.0 and v2['speed'] <= 2.0:
+                        collision_id = f"{min(id1, id2)}_{max(id1, id2)}"
+                        if collision_id in self.accident_confidence:
+                            # Eliminar completamente la confianza para este par de vehículos estacionados
+                            self.accident_confidence[collision_id] = 0
+                        continue
+                    
+                    # MEJORA 3: Verificar velocidades de ambos vehículos explícitamente
+                    # Al menos uno debe tener velocidad mayor a 1.5 km/h para considerar un accidente
+                    if v1['speed'] <= 1.5 and v2['speed'] <= 1.5:
+                        # Ambos vehículos están casi detenidos, ignorar posible colisión
+                        collision_id = f"{min(id1, id2)}_{max(id1, id2)}"
+                        if collision_id in self.accident_confidence:
+                            # Reducir contador de confianza agresivamente para evitar acumulación
+                            self.accident_confidence[collision_id] = max(0, self.accident_confidence[collision_id] - 3)
+                        continue
                         
                     # Verificar intersección real de bounding boxes (REQUISITO OBLIGATORIO)
                     bb1 = v1['bbox']
@@ -308,9 +350,9 @@ class AccidentDetector:
                         continue
                     
                     # Verificar si al menos uno de los vehículos está en movimiento significativo
-                    v1_moving = v1['speed'] > 15 or (len(self.velocity_history[id1]) > 3 and 
+                    v1_moving = v1['speed'] > 1.5 or (len(self.velocity_history[id1]) > 3 and 
                                                 np.linalg.norm(self.velocity_history[id1][-1]) > 10)
-                    v2_moving = v2['speed'] > 15 or (len(self.velocity_history[id2]) > 3 and 
+                    v2_moving = v2['speed'] > 1.5 or (len(self.velocity_history[id2]) > 3 and 
                                                 np.linalg.norm(self.velocity_history[id2][-1]) > 10)
                     
                     # SOLO detectar colisión si hay intersección real y al menos uno está en movimiento
@@ -318,13 +360,43 @@ class AccidentDetector:
                         collision_id = f"{min(id1, id2)}_{max(id1, id2)}"
                         
                         # Verificar si alguno de los objetos ha estado estacionario durante mucho tiempo
-                        v1_stationary = self._is_object_stationary(id1, 10)
-                        v2_stationary = self._is_object_stationary(id2, 10)
+                        # MEJORA: Usando nuestro nuevo método mejorado para verificar estacionarios
+                        v1_stationary = self._is_object_stationary(id1, 15)
+                        v2_stationary = self._is_object_stationary(id2, 15)
                         
                         # Si ambos son estacionarios, es muy probable un falso positivo
                         if v1_stationary and v2_stationary:
+                            # Reducir contador de confianza más agresivamente
+                            if collision_id in self.accident_confidence:
+                                self.accident_confidence[collision_id] = max(0, self.accident_confidence[collision_id] - 5)
                             continue
                         
+                        # MEJORA: Verificar historial de aceleración para detectar cambios bruscos
+                        # CORREGIDO: Ahora accede directamente al último elemento en vez de usar slice
+                        sudden_deceleration = False
+                        if len(self.acceleration_history[id1]) > 3 or len(self.acceleration_history[id2]) > 3:
+                            # Verificar si alguno de los vehículos sufrió una desaceleración repentina
+                            if id1 in self.acceleration_history and len(self.acceleration_history[id1]) >= 3:
+                                # Acceder al último elemento directamente
+                                latest_acc1 = self.acceleration_history[id1][-1]
+                                if np.linalg.norm(latest_acc1) > self.deceleration_threshold:
+                                    sudden_deceleration = True
+                            
+                            if not sudden_deceleration and id2 in self.acceleration_history and len(self.acceleration_history[id2]) >= 3:
+                                # Acceder al último elemento directamente
+                                latest_acc2 = self.acceleration_history[id2][-1]
+                                if np.linalg.norm(latest_acc2) > self.deceleration_threshold:
+                                    sudden_deceleration = True
+                        
+                        # MEJORA 4: Aumentar umbral de confianza para casos de baja velocidad
+                        required_confidence = self.confidence_threshold
+                        if not sudden_deceleration:
+                            required_confidence += 2  # Exigir más evidencia si no hay desaceleración
+                        
+                        # Aumentar aún más para vehículos con baja velocidad
+                        if max(v1['speed'], v2['speed']) < 5.0:
+                            required_confidence += 3  # Mucho más estricto con vehículos lentos
+                            
                         # Si ya está registrado, incrementar contador de confianza
                         if collision_id in self.accident_confidence:
                             self.accident_confidence[collision_id] += 1
@@ -332,7 +404,7 @@ class AccidentDetector:
                             self.accident_confidence[collision_id] = 1
                         
                         # Solo registrar si supera el umbral de confianza
-                        if self.accident_confidence[collision_id] >= self.confidence_threshold:
+                        if self.accident_confidence[collision_id] >= required_confidence:
                             # Evitar duplicados de la misma colisión en un periodo corto
                             if collision_id not in self.registered_accidents:
                                 # Marcar ambos vehículos como colisionados
@@ -380,6 +452,13 @@ class AccidentDetector:
                         vehicle.get('frames_detected', 0) < 5 or
                         pedestrian.get('frames_detected', 0) < 5):
                         continue
+                    
+                    # MEJORA: Verificar velocidad del vehículo (debe ser > 1.5 km/h)
+                    if vehicle['speed'] <= 1.5:
+                        collision_id = f"ped_{pedestrian_id}_{vehicle_id}"
+                        if collision_id in self.accident_confidence:
+                            self.accident_confidence[collision_id] = max(0, self.accident_confidence[collision_id] - 2)
+                        continue
                         
                     # Verificar intersección de bounding boxes
                     vbb = vehicle['bbox']
@@ -404,7 +483,7 @@ class AccidentDetector:
                         continue
                     
                     # Verificar que el vehículo está en movimiento (velocidad significativa)
-                    vehicle_moving = vehicle['speed'] > 15 or (
+                    vehicle_moving = vehicle['speed'] > 1.5 or (
                         len(self.velocity_history[vehicle_id]) > 3 and 
                         np.linalg.norm(self.velocity_history[vehicle_id][-1]) > 10
                     )
@@ -415,6 +494,16 @@ class AccidentDetector:
                     
                     # Crear ID único para esta colisión
                     collision_id = f"ped_{pedestrian_id}_{vehicle_id}"
+                    
+                    # MEJORA: Verificar si es un vehículo estacionado con nuestro método mejorado
+                    vehicle_stationary = self._is_object_stationary(vehicle_id, 15)
+                    
+                    # Si el vehículo está estacionado, es probable un falso positivo
+                    if vehicle_stationary:
+                        # Reducir contador de confianza más agresivamente
+                        if collision_id in self.accident_confidence:
+                            self.accident_confidence[collision_id] = max(0, self.accident_confidence[collision_id] - 2)
+                        continue
                     
                     # Usar sistema de confianza temporal
                     if collision_id in self.accident_confidence:
@@ -457,7 +546,7 @@ class AccidentDetector:
         except Exception as e:
             print(f"Error en deteccion de atropellos: {e}")
         
-        # 4. Guardar accidentes recientes para alertas y registro
+        # Guardar accidentes recientes para alertas y registro
         for accident in accidents:
             self.recent_accidents.append(accident)
                 
@@ -467,10 +556,19 @@ class AccidentDetector:
         
         return accidents
     
-    def _is_object_stationary(self, obj_id, num_frames=10):
+    def _is_object_stationary(self, obj_id, num_frames=15):
         """
-        Verifica si un objeto está estacionario durante los últimos frames
+        Método mejorado y más robusto para verificar si un vehículo está estacionado,
+        combinando múltiples criterios para mayor precisión.
+        
+        Args:
+            obj_id: ID del objeto trackado
+            num_frames: Número de frames para analizar
+            
+        Returns:
+            Boolean indicando si el objeto está estacionario
         """
+        # Verificar si tenemos suficiente historial
         if obj_id not in self.position_history or len(self.position_history[obj_id]) < num_frames:
             return False
             
@@ -478,13 +576,57 @@ class AccidentDetector:
         if len(positions) < 2:
             return True
             
+        # Calcular movimiento promedio, movimiento máximo y desplazamiento total
         total_movement = 0
+        max_movement = 0
+        displacement = np.linalg.norm(positions[-1] - positions[0])
+        
         for i in range(1, len(positions)):
             movement = np.linalg.norm(positions[i] - positions[i-1])
             total_movement += movement
+            max_movement = max(max_movement, movement)
             
         avg_movement = total_movement / (len(positions) - 1)
-        return avg_movement < 2.0  # 2 píxeles promedio por frame
+        
+        # Obtener la velocidad registrada si está disponible
+        vehicle_speed = 0
+        if obj_id in self.tracked_vehicles:
+            vehicle_speed = self.tracked_vehicles[obj_id]['speed']
+        
+        # Calcular varianza del movimiento para detectar pequeños ajustes de posición
+        # que no representan movimiento real
+        movement_variance = 0
+        if len(positions) >= 5:
+            movements = []
+            for i in range(1, len(positions)):
+                movements.append(np.linalg.norm(positions[i] - positions[i-1]))
+            movement_variance = np.var(movements)
+        
+        # Criterios mejorados para determinar si un vehículo está estacionado:
+        # 1. Movimiento promedio por frame es bajo (< 2.5 píxeles)
+        # 2. Movimiento máximo entre frames es limitado (< 6.0 píxeles)
+        # 3. Desplazamiento total durante toda la ventana de tiempo es pequeño
+        # 4. La velocidad registrada es muy baja (≤ 2.0 km/h)
+        # 5. La varianza del movimiento es baja (movimientos consistentemente pequeños)
+        
+        is_stationary = (
+            avg_movement < 2.5 and
+            max_movement < 6.0 and
+            displacement < num_frames * 2.5 and  # Más estricto: 2.5 píxeles por frame
+            vehicle_speed <= 2.0 and            # Umbral ligeramente más alto para tolerar errores
+            movement_variance < 4.0              # Baja varianza en movimiento
+        )
+        
+        # Para vehículos con mucho historial, hacer una verificación adicional más larga
+        if is_stationary and obj_id in self.position_history and len(self.position_history[obj_id]) >= 25:
+            long_positions = list(self.position_history[obj_id])[-25:]
+            long_displacement = np.linalg.norm(long_positions[-1] - long_positions[0])
+            
+            # Si hay un desplazamiento significativo en un período más largo, no es estacionario
+            if long_displacement > 25:
+                is_stationary = False
+        
+        return is_stationary
         
     def _calculate_movement(self, positions):
         """
@@ -742,25 +884,98 @@ class AccidentDetector:
         except Exception as e:
             print(f"Error al guardar imagen del accidente: {e}")
 
-    def force_accident_detection(self, frame, bbox):
+    def force_accident_detection(self, frame, bbox, validate_stationary=True):
         """
-        Forzar la deteccion de un accidente en una ubicacion especifica (para pruebas)
+        Forzar la detección de un accidente en una ubicación específica con 
+        validación mejorada para vehículos estacionados.
         
         Args:
             frame: Frame actual
-            bbox: (x1, y1, x2, y2) del area del accidente
+            bbox: (x1, y1, x2, y2) del área del accidente
+            validate_stationary: Si es True, verifica que no sea un vehículo estacionado
         """
         current_time = time.time()
         accident_id = f"manual_{int(current_time)}"
         
+        # Verificación mejorada para vehículos estacionados
+        if validate_stationary:
+            x1, y1, x2, y2 = bbox
+            bbox_center = ((x1 + x2) // 2, (y1 + y2) // 2)
+            
+            # Contar vehículos estacionarios y en movimiento en el área
+            stationary_vehicles_nearby = 0
+            moving_vehicles_nearby = 0
+            
+            for veh_id, veh in self.tracked_vehicles.items():
+                # Verificar si está dentro o cerca del bbox
+                veh_bbox = veh['bbox']
+                veh_center = ((veh_bbox[0] + veh_bbox[2]) // 2, (veh_bbox[1] + veh_bbox[3]) // 2)
+                
+                # Distancia entre centros
+                distance = np.sqrt((bbox_center[0] - veh_center[0])**2 + 
+                                (bbox_center[1] - veh_center[1])**2)
+                
+                # Si está cerca, verificar si está estacionado o en movimiento
+                if distance < 150:
+                    # Usar el método mejorado para la detección de estacionarios
+                    if self._is_object_stationary(veh_id, 15):
+                        stationary_vehicles_nearby += 1
+                    else:
+                        moving_vehicles_nearby += 1
+            
+            # Si hay varios vehículos estacionados y ninguno en movimiento, es probable un falso positivo
+            if stationary_vehicles_nearby >= 2 and moving_vehicles_nearby == 0:
+                print(f"Múltiples vehículos estacionados detectados en área de interés, ignorando falso positivo.")
+                return None
+            
+            # Si hay al menos un vehículo estacionario y la zona tiene forma de estacionamiento
+            # (verificación adicional para áreas de estacionamiento)
+            if stationary_vehicles_nearby >= 1 and moving_vehicles_nearby == 0:
+                # Verificar si hay varios vehículos alineados (típico en zonas de estacionamiento)
+                aligned_vehicles = 0
+                for veh1_id, veh1 in self.tracked_vehicles.items():
+                    if distance > 250:  # Solo considerar vehículos cercanos
+                        continue
+                    
+                    veh1_bbox = veh1['bbox']
+                    veh1_center_x = (veh1_bbox[0] + veh1_bbox[2]) // 2
+                    
+                    # Contar cuántos vehículos están alineados horizontalmente (estacionados en línea)
+                    for veh2_id, veh2 in self.tracked_vehicles.items():
+                        if veh1_id == veh2_id:
+                            continue
+                            
+                        veh2_bbox = veh2['bbox']
+                        veh2_center_x = (veh2_bbox[0] + veh2_bbox[2]) // 2
+                        
+                        # Si están aproximadamente alineados en X y cercanos
+                        if abs(veh1_center_x - veh2_center_x) < 300:
+                            aligned_vehicles += 1
+                            break
+                
+                # Si hay vehículos alineados, es probablemente una zona de estacionamiento
+                if aligned_vehicles >= 1:
+                    print(f"Zona de estacionamiento detectada, ignorando falso positivo.")
+                    return None
+        
         if accident_id not in self.registered_accidents:
+            # Verificar que no haya una detección reciente en la misma área
+            for acc in self.recent_accidents:
+                if time.time() - acc['time'] < self.cooldown_time:
+                    acc_bbox = acc['bbox']
+                    # Calcular IoU para ver si se superponen significativamente
+                    iou = self._calculate_iou(bbox, acc_bbox)
+                    if iou > 0.5:  # Superposición significativa
+                        return None
+                        
             accident_data = {
                 'type': 'collision',
-                'vehicles': [-1],  # ID especial para deteccion manual
+                'vehicles': [-1],  # ID especial para detección manual
                 'risk': 100,       # Accidente confirmado
                 'bbox': bbox,
                 'time': current_time,
-                'collision_id': accident_id
+                'collision_id': accident_id,
+                'validated': not validate_stationary  # Indicar si se validó contra estacionarios
             }
             
             self.recent_accidents.append(accident_data)
@@ -772,3 +987,34 @@ class AccidentDetector:
             return accident_data
         
         return None
+
+    def _calculate_iou(self, bbox1, bbox2):
+        """
+        Calcula la intersección sobre unión (IoU) de dos bounding boxes.
+        
+        Args:
+            bbox1, bbox2: (x1, y1, x2, y2)
+        
+        Returns:
+            IoU como valor entre 0 y 1
+        """
+        # Coordenadas de la intersección
+        x_left = max(bbox1[0], bbox2[0])
+        y_top = max(bbox1[1], bbox2[1])
+        x_right = min(bbox1[2], bbox2[2])
+        y_bottom = min(bbox1[3], bbox2[3])
+        
+        # Si no hay intersección
+        if x_right < x_left or y_bottom < y_top:
+            return 0.0
+            
+        # Área de intersección
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+        
+        # Áreas de ambos bounding boxes
+        bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+        bbox2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+        
+        # IoU
+        iou = intersection_area / float(bbox1_area + bbox2_area - intersection_area)
+        return iou

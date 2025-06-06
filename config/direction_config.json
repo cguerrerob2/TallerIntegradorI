@@ -1,26 +1,27 @@
 {
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\Traffic IP Camera video.mp4": {
-    "main_direction": "down",
+    "main_direction": "up",
+    "secondary_direction": null,
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            529,
-            90
+            383,
+            353
           ],
           [
-            419,
-            369
+            525,
+            94
           ]
         ],
         "frame_coords": [
           [
-            1534,
-            228
+            1110,
+            939
           ],
           [
-            1215,
-            937
+            1522,
+            250
           ]
         ]
       }
@@ -28,26 +29,27 @@
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\YF_DzoTDO-0.mp4": {
     "main_direction": "right",
+    "secondary_direction": null,
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            195,
-            89
+            186,
+            91
           ],
           [
-            483,
-            282
+            559,
+            326
           ]
         ],
         "frame_coords": [
           [
-            754,
-            301
+            719,
+            322
           ],
           [
-            1867,
-            955
+            2161,
+            1156
           ]
         ]
       }
@@ -55,70 +57,49 @@
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\1080P 2.0Megapixel IP camera video on road.mp4": {
     "main_direction": "down",
+    "secondary_direction": "up",
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            165,
-            199
+            222,
+            184
           ],
           [
-            122,
-            437
+            192,
+            315
           ]
         ],
         "frame_coords": [
           [
-            685,
-            424
+            643,
+            489
           ],
           [
-            507,
-            932
+            556,
+            837
           ]
         ]
       },
       {
         "canvas_coords": [
           [
-            301,
-            448
+            416,
+            325
           ],
           [
-            271,
-            236
+            375,
+            160
           ]
         ],
         "frame_coords": [
           [
-            1250,
-            956
+            1206,
+            864
           ],
           [
-            1126,
-            503
-          ]
-        ]
-      },
-      {
-        "canvas_coords": [
-          [
-            214,
-            203
-          ],
-          [
-            208,
-            399
-          ]
-        ],
-        "frame_coords": [
-          [
-            889,
-            433
-          ],
-          [
-            864,
-            851
+            1087,
+            425
           ]
         ]
       }
@@ -126,48 +107,49 @@
   },
   "C:\\Users\\Christopeer\\Downloads\\TallerIntegrador\\videos\\W_A4xFDNjnU.mp4": {
     "main_direction": "down",
+    "secondary_direction": "up",
     "custom_directions": [
       {
         "canvas_coords": [
           [
-            366,
-            107
+            381,
+            121
           ],
           [
-            400,
-            332
+            430,
+            301
           ]
         ],
         "frame_coords": [
           [
-            707,
-            181
+            736,
+            214
           ],
           [
-            773,
-            562
+            831,
+            533
           ]
         ]
       },
       {
         "canvas_coords": [
           [
-            119,
-            314
+            132,
+            297
           ],
           [
-            223,
-            101
+            225,
+            123
           ]
         ],
         "frame_coords": [
           [
-            230,
-            531
+            255,
+            526
           ],
           [
-            431,
-            171
+            435,
+            218
           ]
         ]
       }

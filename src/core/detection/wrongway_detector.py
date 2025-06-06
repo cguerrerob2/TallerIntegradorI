@@ -46,6 +46,9 @@ class WrongWayDetector:
         self.manual_override = {}  # Para casos especiales donde queremos forzar el resultado
         self.debug_mode = False   # Para depuración
         
+        # Dirección secundaria (opcional)
+        self.secondary_direction = None
+        
         print(f"Detector de sentido contrario inicializado - Dirección permitida: {allowed_direction}")
     
     def update(self, detections, frame_shape):
@@ -186,7 +189,24 @@ class WrongWayDetector:
                                 
                                 # Si el ángulo es mayor a 90°, está yendo en dirección opuesta
                                 if angle_deg > 90:
-                                    self.tracked_objects[best_id]['wrong_way_count'] += 1
+                                    # Comprobar dirección secundaria si está disponible
+                                    is_wrong_direction = True
+                                    
+                                    # Si existe una dirección secundaria para esta región
+                                    if 'secondary' in applicable_direction and applicable_direction['secondary'] and applicable_direction['secondary'] in self.direction_vectors:
+                                        secondary_vector = self.direction_vectors[applicable_direction['secondary']]
+                                        secondary_dot = np.dot(movement_vector, secondary_vector)
+                                        # Si cumple con la dirección secundaria, no es sentido contrario
+                                        if secondary_dot > 0:
+                                            is_wrong_direction = False
+                                    
+                                    if is_wrong_direction:
+                                        self.tracked_objects[best_id]['wrong_way_count'] += 1
+                                    else:
+                                        # Reducir el contador si se mueve en dirección secundaria permitida
+                                        self.tracked_objects[best_id]['wrong_way_count'] = max(
+                                            0, self.tracked_objects[best_id]['wrong_way_count'] - 1
+                                        )
                                 else:
                                     # Reducir el contador si se mueve en la dirección correcta
                                     self.tracked_objects[best_id]['wrong_way_count'] = max(
@@ -206,7 +226,23 @@ class WrongWayDetector:
                             
                             # Si el producto punto es negativo, el ángulo es mayor a 90 grados
                             if dot_product < 0:
-                                self.tracked_objects[best_id]['wrong_way_count'] += 1
+                                # Verificar si cumple con la dirección secundaria global
+                                is_wrong_direction = True
+                                
+                                if self.secondary_direction and self.secondary_direction in self.direction_vectors:
+                                    secondary_vector = self.direction_vectors[self.secondary_direction]
+                                    secondary_dot = np.dot(movement_vector, secondary_vector)
+                                    # Si cumple con la dirección secundaria, no es sentido contrario
+                                    if secondary_dot > 0:
+                                        is_wrong_direction = False
+                                
+                                if is_wrong_direction:
+                                    self.tracked_objects[best_id]['wrong_way_count'] += 1
+                                else:
+                                    # Reducir contador si cumple dirección secundaria
+                                    self.tracked_objects[best_id]['wrong_way_count'] = max(
+                                        0, self.tracked_objects[best_id]['wrong_way_count'] - 1
+                                    )
                             else:
                                 self.tracked_objects[best_id]['wrong_way_count'] = max(
                                     0, self.tracked_objects[best_id]['wrong_way_count'] - 1
@@ -373,6 +409,22 @@ class WrongWayDetector:
             return True
         return False
     
+    def set_secondary_direction(self, new_direction):
+        """
+        Cambia la dirección secundaria permitida.
+        
+        Args:
+            new_direction: Nueva dirección secundaria ('right', 'left', 'up', 'down') o None
+        """
+        if new_direction in self.direction_vectors or new_direction is None:
+            self.secondary_direction = new_direction
+            # Reiniciar detecciones al cambiar dirección
+            self.wrong_way_vehicles = set()
+            for obj_id in self.tracked_objects:
+                self.tracked_objects[obj_id]['wrong_way_count'] = 0
+            return True
+        return False
+    
     def configure_scene(self, scene_type='intersection'):
         """
         Configura el detector para un tipo de escena específico.
@@ -390,15 +442,18 @@ class WrongWayDetector:
             return True
         return False
     
-    def set_custom_directions(self, directions):
+    def set_custom_directions(self, directions, secondary_direction=None):
         """
         Establece direcciones personalizadas para el análisis de sentido contrario.
         
         Args:
             directions: Lista de diccionarios con 'start' y 'end' (coordenadas x,y)
                     que definen las direcciones permitidas de tráfico
+            secondary_direction: Dirección secundaria permitida ('right', 'left', 'up', 'down')
+                    que se utilizará como criterio adicional para confirmar el sentido contrario
         """
         self.custom_directions = directions
+        self.secondary_direction = secondary_direction
         
         # Calcular vectores de dirección normalizados para cada dirección personalizada
         self.direction_vectors_custom = []
@@ -415,7 +470,8 @@ class WrongWayDetector:
                 self.direction_vectors_custom.append({
                     'origin': start,
                     'vector': dir_vector,
-                    'region': self._calculate_region(start, end)
+                    'region': self._calculate_region(start, end),
+                    'secondary': self.secondary_direction
                 })
         
         # Reiniciar detecciones
@@ -424,6 +480,8 @@ class WrongWayDetector:
             self.tracked_objects[obj_id]['wrong_way_count'] = 0
         
         print(f"Configuradas {len(self.direction_vectors_custom)} direcciones personalizadas")
+        if secondary_direction:
+            print(f"Dirección secundaria configurada: {secondary_direction}")
 
     def _calculate_region(self, start, end):
         """
